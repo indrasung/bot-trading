@@ -50,4 +50,5 @@ pairs = ["BTC-USD", "EURUSD=X"]
 for p in pairs:
     check_80_20(p)
 
+send_telegram("HALO!")
 
