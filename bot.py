@@ -1,115 +1,223 @@
+import os
 import requests
-import pandas as pd
 import yfinance as yf
-from datetime import datetime
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
 
-TELEGRAM_TOKEN = "9221976474:AAGK4Lz8h6GzLu1wuvoQvLoGoWxA9RdSiRs"
-TELEGRAM_CHAT_ID = "6917045544"
+# =====================================================================
+# [BAGIAN 1] PENGATURAN
+# =====================================================================
+# Token & ID diambil dari GitHub Secrets (Jangan ditulis langsung di sini)
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-def send_telegram(message):
-    domain = "api.telegram.org"
-    url = f"https://{domain}/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown"
-    }
+# Daftar Pair (Format MT4 : Format Yahoo Finance)
+PAIRS = {
+    "EURUSD": "EURUSD=X",
+    "GBPUSD": "GBPUSD=X",
+    "USDJPY": "USDJPY=X",
+    "AUDUSD": "AUDUSD=X",
+    "USDCAD": "USDCAD=X",
+    "NZDUSD": "NZDUSD=X",
+    "USDCHF": "USDCHF=X",
+    "EURGBP": "EURGBP=X",
+    "XAUUSD": "GC=F",
+    "BTCUSD": "BTC-USD",
+    "GBPJPY": "GBPJPY=X",
+    "EURJPY": "EURJPY=X"
+}
+
+# =====================================================================
+# [BAGIAN 2] UTILITAS WAKTU (WIB & FORMAT TANGGAL)
+# =====================================================================
+def dapatkan_waktu_wib():
+    # Waktu server (UTC) + 7 jam = WIB
+    wib_time = datetime.utcnow() + timedelta(hours=7)
+    # Format: 11 Nov 26, 15:05 WIB
+    return wib_time.strftime("%d %b %y, %H:%M WIB")
+
+# =====================================================================
+# [BAGIAN 3] MODUL KIRIM TELEGRAM
+# =====================================================================
+def kirim_telegram(pesan):
+    print(f"\n[INFO] Mengirim pesan ke Telegram...")
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        print("[ERROR] Token atau Chat ID belum diset di GitHub Secrets!")
+        return
+        
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": pesan, "parse_mode": "HTML"}
     try:
-        r = requests.post(url, json=payload, timeout=10)
-        print(f"Status HTTP: {r.status_code}")
+        respon = requests.post(url, json=payload, timeout=10)
+        if respon.status_code == 200:
+            print("[SUKSES] Pesan terkirim ke Telegram!")
+        else:
+            print(f"[ERROR TELEGRAM] Kode: {respon.status_code}, Pesan: {respon.text}")
     except Exception as e:
-        print(f"Error Telegram: {e}")
+        print(f"[ERROR KONEKSI] Gagal hubungi Telegram: {e}")
 
-def check_80_20(df_d1):
-    """Memeriksa Setup 80-20's pada candle harian (H-1)"""
-    if len(df_d1) < 2:
+# =====================================================================
+# [BAGIAN 4] MODUL AMBIL DATA & HITUNG ATR
+# =====================================================================
+def ambil_data(yahoo_symbol, interval, period="30d"):
+    try:
+        df = yf.download(yahoo_symbol, period=period, interval=interval, progress=False, threads=False)
+        if df is None or df.empty:
+            return None
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        return df
+    except Exception:
         return None
-    prev = df_d1.iloc[-2] # Candle kemarin yang sudah selesai
-    o, h, l, c = prev['Open'], prev['High'], prev['Low'], prev['Close']
-    total_range = h - l
-    if total_range <= 0:
+
+def hitung_atr(df, period=14):
+    high_low = df['High'] - df['Low']
+    high_close = np.abs(df['High'] - df['Close'].shift())
+    low_close = np.abs(df['Low'] - df['Close'].shift())
+    ranges = pd.concat([high_low, high_close, low_close], axis=1)
+    true_range = np.max(ranges, axis=1)
+    return true_range.rolling(window=period).mean()
+
+def cek_harga_live(yahoo_symbol):
+    try:
+        ticker = yf.Ticker(yahoo_symbol)
+        harga = ticker.fast_info['last_price']
+        return float(harga)
+    except Exception:
         return None
+
+# =====================================================================
+# [BAGIAN 5] MODUL ANALISA 80-20 (Timeframe D1)
+# =====================================================================
+def cek_80_20(simbol_mt4, yahoo_symbol):
+    df = ambil_data(yahoo_symbol, "1d")
+    if df is None or len(df) < 2: return None
     
-    lower_20 = l + 0.20 * total_range
-    upper_20 = h - 0.20 * total_range
+    prev = df.iloc[-2]
+    o, h, l, c = float(prev['Open']), float(prev['High']), float(prev['Low']), float(prev['Close'])
+    rng = h - l
+    if rng <= 0: return None
+        
+    top_20 = h - (0.20 * rng)
+    bot_20 = l + (0.20 * rng)
+    waktu_sekarang = dapatkan_waktu_wib()
     
-    # Buy Setup: Open <= 20% bawah & Close >= 20% atas
-    if o <= lower_20 and c >= upper_20:
-        return f"🟢 *80-20's BUY SETUP (D1)*\n   - High H-1: `{h:.4f}` | Low H-1: `{l:.4f}`\n   - *Rencana:* Pasang Buy Stop di atas High H-1"
+    # 80-20 BUY: Kemarin turun tajam (Open atas, Close bawah) -> Harap pembalikan naik
+    if o >= top_20 and c <= bot_20:
+        harga_live = cek_harga_live(yahoo_symbol)
+        if harga_live and harga_live > h:
+            return f"⚠️ <b>[80-20's BUY - TERLAMBAT]</b>\nPair: {simbol_mt4} (D1)\nWaktu: {waktu_sekarang}\nHarga sudah tembus High ({h:.5f}). Harga kini: {harga_live:.5f}. Abaikan."
+        return f"🚨 <b>[80-20's BUY SETUP]</b>\nPair: {simbol_mt4} (D1)\nWaktu: {waktu_sekarang}\nHigh Kemarin: <code>{h:.5f}</code>\n👉 <b>Entry:</b> BUY STOP di <code>{h:.5f}</code>"
     
-    # Sell Setup: Open >= 20% atas & Close <= 20% bawah
-    if o >= upper_20 and c <= lower_20:
-        return f"🔴 *80-20's SELL SETUP (D1)*\n   - High H-1: `{h:.4f}` | Low H-1: `{l:.4f}`\n   - *Rencana:* Pasang Sell Stop di bawah Low H-1"
-    
+    # 80-20 SELL: Kemarin naik tajam (Open bawah, Close atas) -> Harap pembalikan turun
+    elif o <= bot_20 and c >= top_20:
+        harga_live = cek_harga_live(yahoo_symbol)
+        if harga_live and harga_live < l:
+            return f"⚠️ <b>[80-20's SELL - TERLAMBAT]</b>\nPair: {simbol_mt4} (D1)\nWaktu: {waktu_sekarang}\nHarga sudah tembus Low ({l:.5f}). Harga kini: {harga_live:.5f}. Abaikan."
+        return f"🚨 <b>[80-20's SELL SETUP]</b>\nPair: {simbol_mt4} (D1)\nWaktu: {waktu_sekarang}\nLow Kemarin: <code>{l:.5f}</code>\n👉 <b>Entry:</b> SELL STOP di <code>{l:.5f}</code>"
+        
     return None
 
-def check_turtle_soup(df_h4, lookback=20):
-    """Memeriksa Turtle Soup (False Breakout 20 bar H4)"""
-    if len(df_h4) < lookback + 1:
-        return None
+# =====================================================================
+# [BAGIAN 6] MODUL ANALISA TS / TS+ (Timeframe H4)
+# =====================================================================
+def cek_ts(simbol_mt4, yahoo_symbol):
+    df_h1 = ambil_data(yahoo_symbol, "1h")
+    if df_h1 is None: return None
     
-    recent = df_h4.iloc[-lookback-1:-1] # 20 bar H4 sebelumnya
-    curr = df_h4.iloc[-1] # Bar H4 berjalan/terbaru
+    # Konversi H1 ke H4
+    df = df_h1.resample('4h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'}).dropna()
+    if len(df) < 22: return None
     
-    max_high = recent['High'].max()
-    min_low = recent['Low'].min()
+    df['ATR'] = hitung_atr(df)
     
-    # Turtle Soup Buy: Menembus Low 20 bar tapi memantul kembali di atasnya
-    if curr['Low'] < min_low and curr['Close'] > min_low:
-        return f"🐢 *TURTLE SOUP BUY (H4)*\n   - Memantul dari Low 20-bar (`{min_low:.4f}`)\n   - Harga Saat Ini: `{curr['Close']:.4f}`"
+    curr = df.iloc[-1]
+    lookback = df.iloc[-21:-1]
+    atr = float(curr['ATR'])
+    
+    if pd.isna(atr) or atr <= 0: return None
+    
+    o, h, l, c = float(curr['Open']), float(curr['High']), float(curr['Low']), float(curr['Close'])
+    lowest_20 = float(lookback['Low'].min())
+    highest_20 = float(lookback['High'].max())
+    waktu_sekarang = dapatkan_waktu_wib()
+    
+    # TS BUY / TS+ BUY
+    if l < lowest_20:
+        idx_low = lookback['Low'].idxmin()
+        age = len(lookback) - lookback.index.get_loc(idx_low)
+        wick = (min(o, c) - l) / (h - l) if (h - l) > 0 else 0
         
-    # Turtle Soup Sell: Menembus High 20 bar tapi memantul kembali di bawahnya
-    if curr['High'] > max_high and curr['Close'] < max_high:
-        return f"🐢 *TURTLE SOUP SELL (H4)*\n   - Memantul dari High 20-bar (`{max_high:.4f}`)\n   - Harga Saat Ini: `{curr['Close']:.4f}`"
+        if c > lowest_20 and age >= 4: # TS Buy
+            harga_live = cek_harga_live(yahoo_symbol)
+            entry = lowest_20 + (0.15 * atr)
+            if harga_live and harga_live > entry:
+                return f"⚠️ <b>[TS BUY - TERLAMBAT]</b>\nPair: {simbol_mt4} (H4)\nWaktu: {waktu_sekarang}\nHarga sudah naik ke {harga_live:.5f} (Entry: {entry:.5f}). Abaikan."
+            
+            tipe = "TS KUAT" if wick >= 0.5 else "TS LEMAH"
+            return f"🚨 <b>[{tipe} BUY]</b>\nPair: {simbol_mt4} (H4)\nWaktu: {waktu_sekarang}\nEntry: <code>{entry:.5f}</code> (BUY STOP)\nSL: <code>{l:.5f}</code>"
+            
+        elif c <= lowest_20 and age >= 3: # TS+ Buy
+            entry = lowest_20
+            harga_live = cek_harga_live(yahoo_symbol)
+            if harga_live and harga_live > entry:
+                return f"⚠️ <b>[TS+ BUY - TERLAMBAT]</b>\nPair: {simbol_mt4} (H4)\nWaktu: {waktu_sekarang}\nHarga sudah naik ke {harga_live:.5f}. Abaikan."
+            return f"🚨 <b>[TS+ BUY]</b>\nPair: {simbol_mt4} (H4)\nWaktu: {waktu_sekarang}\nEntry: <code>{entry:.5f}</code> (BUY STOP)\nSL: <code>{l - (0.04 * atr):.5f}</code>"
+
+    # TS SELL / TS+ SELL
+    if h > highest_20:
+        idx_high = lookback['High'].idxmax()
+        age = len(lookback) - lookback.index.get_loc(idx_high)
+        wick = (h - max(o, c)) / (h - l) if (h - l) > 0 else 0
         
+        if c < highest_20 and age >= 4: # TS Sell
+            harga_live = cek_harga_live(yahoo_symbol)
+            entry = highest_20 - (0.15 * atr)
+            if harga_live and harga_live < entry:
+                return f"⚠️ <b>[TS SELL - TERLAMBAT]</b>\nPair: {simbol_mt4} (H4)\nWaktu: {waktu_sekarang}\nHarga sudah turun ke {harga_live:.5f} (Entry: {entry:.5f}). Abaikan."
+            
+            tipe = "TS KUAT" if wick >= 0.5 else "TS LEMAH"
+            return f"🚨 <b>[{tipe} SELL]</b>\nPair: {simbol_mt4} (H4)\nWaktu: {waktu_sekarang}\nEntry: <code>{entry:.5f}</code> (SELL STOP)\nSL: <code>{h:.5f}</code>"
+            
+        elif c >= highest_20 and age >= 3: # TS+ Sell
+            entry = highest_20
+            harga_live = cek_harga_live(yahoo_symbol)
+            if harga_live and harga_live < entry:
+                return f"⚠️ <b>[TS+ SELL - TERLAMBAT]</b>\nPair: {simbol_mt4} (H4)\nWaktu: {waktu_sekarang}\nHarga sudah turun ke {harga_live:.5f}. Abaikan."
+            return f"🚨 <b>[TS+ SELL]</b>\nPair: {simbol_mt4} (H4)\nWaktu: {waktu_sekarang}\nEntry: <code>{entry:.5f}</code> (SELL STOP)\nSL: <code>{h + (0.04 * atr):.5f}</code>"
+
     return None
 
-def scan_markets():
-    # Daftar aset: BTC-USD, EURUSD=X, GBPUSD=X, GC=F (Emas)
-    pairs = ["BTC-USD", "EURUSD=X", "GBPUSD=X", "GC=F"]
-    signals = []
-    status_summary = []
+# =====================================================================
+# [BAGIAN 7] PROGRAM UTAMA
+# =====================================================================
+def jalankan():
+    print(f"==========================================")
+    print(f"[MULAI] Waktu UTC: {datetime.utcnow()}")
     
-    for symbol in pairs:
-        try:
-            # 1. Ambil data D1 (30 hari)
-            df_d1 = yf.download(symbol, period="30d", interval="1d", progress=False)
-            if isinstance(df_d1.columns, pd.MultiIndex):
-                df_d1.columns = df_d1.columns.get_level_values(0)
-            
-            # 2. Ambil data H1 & resample ke H4 (14 hari)
-            df_h1 = yf.download(symbol, period="14d", interval="1h", progress=False)
-            if isinstance(df_h1.columns, pd.MultiIndex):
-                df_h1.columns = df_h1.columns.get_level_values(0)
-                
-            df_h4 = df_h1.resample('4h').agg({
-                'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'
-            }).dropna()
-            
-            last_price = float(df_d1['Close'].iloc[-1])
-            status_summary.append(f"• `{symbol}`: `{last_price:.4f}`")
-            
-            # Analisis 80-20's
-            sig_8020 = check_80_20(df_d1)
-            if sig_8020:
-                signals.append(f"📌 *{symbol}*\n{sig_8020}")
-                
-            # Analisis Turtle Soup H4
-            sig_ts = check_turtle_soup(df_h4, lookback=20)
-            if sig_ts:
-                signals.append(f"📌 *{symbol}*\n{sig_ts}")
-                
-        except Exception as e:
-            print(f"Error scanning {symbol}: {e}")
-            
-    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    semua_sinyal = []
     
-    if signals:
-        msg = f"🚨 *[SINYAL TRADING TERDETEKSI!]*\n⏰ Waktu: `{now_str}`\n\n" + "\n\n".join(signals)
+    for simbol_mt4, yahoo_symbol in PAIRS.items():
+        # Cek 80-20 (D1)
+        sinyal_80 = cek_80_20(simbol_mt4, yahoo_symbol)
+        if sinyal_80: 
+            semua_sinyal.append(sinyal_80)
+            print(f"[SUKSES] Sinyal 80-20 ditemukan: {simbol_mt4}")
+        
+        # Cek TS/TS+ (H4)
+        sinyal_ts = cek_ts(simbol_mt4, yahoo_symbol)
+        if sinyal_ts: 
+            semua_sinyal.append(sinyal_ts)
+            print(f"[SUKSES] Sinyal TS ditemukan: {simbol_mt4}")
+
+    # Laporan Akhir
+    if semua_sinyal:
+        kirim_telegram(f"🔔 <b>Ditemukan {len(semua_sinyal)} Sinyal Valid!</b>")
+        for s in semua_sinyal:
+            kirim_telegram(s)
     else:
-        msg = f"✅ *[PEMINDAIAN UTUH SELESAI]*\n⏰ Waktu: `{now_str}`\n\nBelum ada setup **80-20's** atau **Turtle Soup H4** terdeteksi saat ini.\n\nHarga Terakhir:\n" + "\n".join(status_summary)
-        
-    send_telegram(msg)
+        print("[INFO] Tidak ada sinyal. Tidak mengirim pesan agar HP tidak berisik.")
 
 if __name__ == "__main__":
-    scan_markets()
+    jalankan()
