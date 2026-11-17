@@ -4,6 +4,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import time
 
 # =====================================================================
 # [BAGIAN 1] PENGATURAN
@@ -38,7 +39,7 @@ def dapatkan_waktu_wib():
     return wib_time.strftime("%d %b %y, %H:%M WIB")
 
 # =====================================================================
-# [BAGIAN 3] MODUL KIRIM TELEGRAM
+# [BAGIAN 3] MODUL KIRIM TELEGRAM (VERSI PERBAIKAN JARINGAN)
 # =====================================================================
 def kirim_telegram(pesan):
     print(f"\n[INFO] Mengirim pesan ke Telegram...")
@@ -48,14 +49,27 @@ def kirim_telegram(pesan):
         
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": pesan, "parse_mode": "HTML"}
-    try:
-        respon = requests.post(url, json=payload, timeout=10)
-        if respon.status_code == 200:
-            print("[SUKSES] Pesan terkirim ke Telegram!")
-        else:
-            print(f"[ERROR TELEGRAM] Kode: {respon.status_code}, Pesan: {respon.text}")
-    except Exception as e:
-        print(f"[ERROR KONEKSI] Gagal hubungi Telegram: {e}")
+    
+    # Header agar Telegram tidak mengira ini serangan bot
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    
+    # Coba kirim hingga 3 kali jika jaringan putus
+    for percobaan in range(3):
+        try:
+            respon = requests.post(url, json=payload, headers=headers, timeout=15)
+            if respon.status_code == 200:
+                print("[SUKSES] Pesan terkirim ke Telegram!")
+                return # Keluar dari fungsi jika berhasil
+            else:
+                print(f"[ERROR TELEGRAM] Kode: {respon.status_code}, Pesan: {respon.text}")
+                return
+        except requests.exceptions.RequestException as e:
+            print(f"[WARNING] Percobaan {percobaan + 1} gagal (Jaringan sibuk). Mencoba lagi...")
+            time.sleep(5) # Jeda 5 detik sebelum coba lagi (membutuhkan import time)
+            
+    print("[ERROR KONEKSI] Gagal total menghubungi Telegram setelah 3x percobaan.")
 
 # =====================================================================
 # [BAGIAN 4] MODUL AMBIL DATA & HITUNG ATR
@@ -220,5 +234,4 @@ def jalankan():
         print("[INFO] Tidak ada sinyal. Tidak mengirim pesan agar HP tidak berisik.")
 
 if __name__ == "__main__":
-    kirim_telegram("🧪 <b>TES KONEKSI:</b> Halo Indra, bot GitHub saya sudah berhasil terhubung ke Telegram!")
     jalankan()
