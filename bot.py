@@ -234,4 +234,5 @@ def jalankan():
         print("[INFO] Tidak ada sinyal. Tidak mengirim pesan agar HP tidak berisik.")
 
 if __name__ == "__main__":
+    kirim_telegram("🧪 <b>TES KONEKSI:</b> Halo Indra, bot GitHub saya sudah berhasil terhubung ke Telegram!")
     jalankan()
