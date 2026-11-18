@@ -1,0 +1,22 @@
+{
+    "AUDUSD": {},
+    "USDCAD": {
+        "TS+": {
+            "dir": "SELL",
+            "entry": 1.431615,
+            "sl": 1.4327835857142857,
+            "type": "TS+ SELL",
+            "trailing": false
+        }
+    },
+    "EURGBP": {
+        "8020": {
+            "dir": "BUY",
+            "entry": 0.834625,
+            "sl": 0.8321885,
+            "type": "80-20 BUY"
+        }
+    },
+    "EURJPY": {},
+    "AUDCAD": {}
+}
