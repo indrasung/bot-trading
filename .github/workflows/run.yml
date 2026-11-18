@@ -1,9 +1,7 @@
 name: Bot Street Smarts Real-Time
 
 on:
-  schedule:
-    - cron: '*/5 * * * *' # Jalan setiap 5 menit
-  workflow_dispatch:
+  workflow_dispatch: # Hanya bisa dipicu manual atau via API eksternal
 
 permissions:
   contents: write
