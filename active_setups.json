@@ -1,3 +1,27 @@
 {
-    
+    "EURGBP": {
+        "8020": {
+            "dir": "BUY",
+            "entry": 0.834625,
+            "sl": 0.8321885,
+            "type": "80-20 BUY",
+            "desc": "Pembalikan dari penurunan tajam.",
+            "status": "WAITING",
+            "time_setup": "19 Nov 26, 00:08 WIB",
+            "tgl_setup": "49"
+        }
+    },
+    "BTCUSD": {
+        "TS": {
+            "dir": "BUY",
+            "entry": 63265.41,
+            "sl": 62879.09162857143,
+            "type": "TS+",
+            "desc": "Breakout. Close di bawah Low.",
+            "trailing": false,
+            "status": "WAITING",
+            "time_setup": "19 Nov 26, 00:08 WIB",
+            "tgl_setup": "49"
+        }
+    }
 }
