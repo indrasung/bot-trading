@@ -6,7 +6,7 @@
             "sl": 0.8321885,
             "type": "80-20 BUY",
             "desc": "Pembalikan dari penurunan tajam.",
-            "status": "WAITING",
+            "status": "TRIGGERED",
             "time_setup": "19 Nov 26, 00:08 WIB",
             "tgl_setup": "49"
         }
