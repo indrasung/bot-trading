@@ -7,7 +7,7 @@
             "type": "TS KUAT",
             "desc": "Fakeout. Ekor 67%.",
             "trailing": true,
-            "status": "WAITING",
+            "status": "TRIGGERED",
             "time_setup": "18 Nov 26, 15:53 WIB"
         }
     },
@@ -19,7 +19,7 @@
             "type": "TS+",
             "desc": "Breakout. Close di atas High.",
             "trailing": false,
-            "status": "WAITING",
+            "status": "TRIGGERED",
             "time_setup": "18 Nov 26, 15:53 WIB"
         }
     },
@@ -42,7 +42,7 @@
             "type": "TS LEMAH",
             "desc": "Fakeout. Ekor 48%.",
             "trailing": true,
-            "status": "WAITING",
+            "status": "TRIGGERED",
             "time_setup": "18 Nov 26, 15:53 WIB"
         }
     },
@@ -50,7 +50,7 @@
         "TS": {
             "dir": "BUY",
             "entry": 0.9617019285714286,
-            "sl": 0.9611814857142856,
+            "sl": 0.9617019285714286,
             "type": "TS LEMAH",
             "desc": "Fakeout. Ekor 39%.",
             "trailing": true,
