@@ -1,10 +1,13 @@
-name: Bot Street Smarts
+name: Bot Street Smarts Real-Time
 
 on:
   schedule:
-    # Berjalan 5 menit setelah candle H4 tutup (UTC): 00:05, 04:05, 08:05, 12:05, 16:05, 20:05
-    - cron: '5 0,4,8,12,16,20 * * *'
-  workflow_dispatch: # Tombol untuk tes manual
+    - cron: '*/5 * * * *' # Jalan setiap 5 menit
+  workflow_dispatch:
+
+# WAJIB: Izin agar bot bisa menyimpan file JSON ke repo
+permissions:
+  contents: write
 
 jobs:
   scan:
@@ -19,10 +22,19 @@ jobs:
           python-version: '3.10'
 
       - name: Install Library
-        run: pip install requests pandas yfinance numpy
+        run: pip install requests pandas numpy biquote
 
       - name: Jalankan Bot
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python bot.py
+
+      - name: Simpan Memori (State) ke GitHub
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "GitHub Actions Bot"
+          git add state.json active_setups.json || true
+          git commit -m "Update state [skip ci]" || true
+          git pull --rebase origin main
+          git push origin main || true
