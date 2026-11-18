@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, timezone
 import time
+from biquote import Biquote
 
 # =====================================================================
 # [BAGIAN 1] PENGATURAN
@@ -12,31 +13,30 @@ import time
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# 19 Pair (Nama standar MT5)
 PAIRS = [
     "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "NZDUSD", "USDCHF", 
     "EURGBP", "GBPJPY", "EURJPY", "NZDCHF", "NZDJPY", "EURCHF", "GBPCHF", 
     "AUDCAD", "EURCAD", "GBPCAD", "XAUUSD", "BTCUSD"
 ]
 
+SPREAD_MAX_R = 0.15 # Batas maksimal Spread / R
+ENTRY_ATR = 0.15    # Buffer Entry
+STOP_ATR = 0.04     # Buffer Stop Loss
+
 # =====================================================================
-# [BAGIAN 2] UTILITAS WAKTU & FILE MEMORY
+# [BAGIAN 2] UTILITAS & MEMORY
 # =====================================================================
-def get_wib_time(dt_utc=None):
-    if dt_utc is None:
-        dt_utc = datetime.now(timezone.utc)
-    wib = dt_utc + timedelta(hours=7)
-    return wib.strftime("%d %b %y, %H:%M WIB")
+def get_wib_time():
+    return (datetime.now(timezone.utc) + timedelta(hours=7)).strftime("%d %b %y, %H:%M WIB")
 
 def load_json(filename):
     if os.path.exists(filename):
         try:
             with open(filename, 'r') as f:
                 content = f.read()
-                if not content: return {} # Jika file kosong
+                if not content: return {}
                 return json.loads(content)
-        except:
-            return {} # Jika file rusak
+        except: return {}
     return {}
 
 def save_json(filename, data):
@@ -47,7 +47,6 @@ def save_json(filename, data):
 # [BAGIAN 3] TELEGRAM (ANTI-PUTUS)
 # =====================================================================
 def kirim_telegram(pesan):
-    print(f"\n[INFO] Mengirim ke Telegram...")
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("[ERROR] Token/ID kosong!")
         return
@@ -59,18 +58,13 @@ def kirim_telegram(pesan):
         try:
             resp = requests.post(url, json=payload, headers=headers, timeout=15)
             if resp.status_code == 200:
-                print("[SUKSES] Terkirim!")
-                return
-            else:
-                print(f"[ERROR TELEGRAM] {resp.status_code}: {resp.text}")
                 return
         except Exception:
-            print(f"[WARNING] Timeout, retry {i+1}/3...")
             time.sleep(5)
-    print("[ERROR] Gagal total kirim Telegram.")
+    print("[ERROR] Gagal kirim Telegram setelah 3x percobaan.")
 
 # =====================================================================
-# [BAGIAN 4] PENGAMBILAN DATA BIQUOTE
+# [BAGIAN 4] DATA & PERHITUNGAN
 # =====================================================================
 def hitung_atr(df, period=14):
     hl = df['High'] - df['Low']
@@ -79,156 +73,193 @@ def hitung_atr(df, period=14):
     tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
     return tr.rolling(window=period).mean()
 
-def get_data_biquote(symbol, timeframe):
+def get_data_biquote(bq, symbol, timeframe):
     try:
-        from biquote import Biquote
-        bq = Biquote()
-        # Ambil data
         bars = bq.ohlc(symbol, interval=timeframe, limit=50)
         if not bars: return None, None
-        
         df = pd.DataFrame(bars)
         if 'time' in df.columns:
             df['time'] = pd.to_datetime(df['time'])
             df.set_index('time', inplace=True)
         df.rename(columns={'open':'Open', 'high':'High', 'low':'Low', 'close':'Close'}, inplace=True)
-        
-        # PENTING: Buang candle yang sedang berjalan (baris terakhir)
+        # Buang candle yang sedang berjalan
         df_closed = df.iloc[:-1]
-        waktu_candle_terakhir = str(df_closed.index[-1])
-        return df_closed, waktu_candle_terakhir
-    except Exception as e:
-        print(f"[ERROR DATA] {symbol} {timeframe}: {e}")
+        return df_closed, str(df_closed.index[-1])
+    except Exception:
         return None, None
 
-def get_harga_live(symbol):
+def get_live_tick(bq, symbol):
     try:
-        from biquote import Biquote
-        bq = Biquote()
-        # biquote.tick mengembalikan harga terakhir (bid/ask)
         tick = bq.tick(symbol)
-        return float(tick['bid']) # Pakai bid untuk trigger sell, ask untuk buy (simplifikasi pakai mid)
+        bid, ask = float(tick['bid']), float(tick['ask'])
+        return bid, ask, (ask - bid)
     except:
-        return None
+        return None, None, None
 
 # =====================================================================
-# [BAGIAN 5] LOGIKA ANALISA (SETUP)
+# [BAGIAN 5] ANALISA SETUP
 # =====================================================================
-def cek_setup(symbol, df_h4, df_d1, state):
-    setups = {}
-    now_str = get_wib_time()
+def cek_8020(symbol, df, state):
+    if df is None or len(df) < 2: return None
+    tgl = str(df.index[-1])
+    if state.get(f"{symbol}_D1") == tgl: return None
     
-    # --- Cek 80-20 (D1) ---
-    if df_d1 is not None and len(df_d1) >= 2:
-        tgl_d1 = str(df_d1.index[-1])
-        if state.get(f"{symbol}_D1") != tgl_d1: # Belum dicek
-            prev = df_d1.iloc[-1]
-            o, h, l, c = float(prev['Open']), float(prev['High']), float(prev['Low']), float(prev['Close'])
-            rng = h - l
-            if rng > 0:
-                top, bot = h - (0.2*rng), l + (0.2*rng)
-                if o >= top and c <= bot: # Buy
-                    setups["8020"] = {"dir": "BUY", "entry": h, "sl": l - (rng*0.1), "type": "80-20 BUY"}
-                elif o <= bot and c >= top: # Sell
-                    setups["8020"] = {"dir": "SELL", "entry": l, "sl": h + (rng*0.1), "type": "80-20 SELL"}
-            state[f"{symbol}_D1"] = tgl_d1 # Tandai sudah dicek
+    prev = df.iloc[-1]
+    o, h, l, c = float(prev['Open']), float(prev['High']), float(prev['Low']), float(prev['Close'])
+    rng = h - l
+    if rng <= 0: return None
+    
+    top, bot = h - (0.2*rng), l + (0.2*rng)
+    setup = None
+    if o >= top and c <= bot:
+        setup = {"dir": "BUY", "entry": h, "sl": l - (rng*0.1), "type": "80-20 BUY", "desc": "Pembalikan dari penurunan tajam."}
+    elif o <= bot and c >= top:
+        setup = {"dir": "SELL", "entry": l, "sl": h + (rng*0.1), "type": "80-20 SELL", "desc": "Pembalikan dari kenaikan tajam."}
+        
+    state[f"{symbol}_D1"] = tgl
+    return setup
 
-    # --- Cek TS / TS+ (H4) ---
-    if df_h4 is not None and len(df_h4) >= 22:
-        tgl_h4 = str(df_h4.index[-1])
-        if state.get(f"{symbol}_H4") != tgl_h4:
-            df_h4['ATR'] = hitung_atr(df_h4)
-            curr = df_h4.iloc[-1]
-            lookback = df_h4.iloc[-21:-1]
-            atr = float(curr['ATR'])
+def cek_ts(symbol, df, state, tf_name, min_ts, min_tsp):
+    if df is None or len(df) < 22: return None
+    tgl = str(df.index[-1])
+    if state.get(f"{symbol}_{tf_name}") == tgl: return None
+    
+    df['ATR'] = hitung_atr(df)
+    curr = df.iloc[-1]
+    lookback = df.iloc[-21:-1]
+    atr = float(curr['ATR'])
+    if pd.isna(atr) or atr <= 0: return None
+    
+    o, h, l, c = float(curr['Open']), float(curr['High']), float(curr['Low']), float(curr['Close'])
+    low20, high20 = float(lookback['Low'].min()), float(lookback['High'].max())
+    setup = None
+    
+    if l < low20:
+        age = len(lookback) - lookback['Low'].values.argmin()
+        wick = (min(o,c) - l) / (h - l) if (h-l)>0 else 0
+        if c > low20 and age >= min_ts:
+            tipe = "KUAT" if wick >= 0.5 else "LEMAH"
+            setup = {"dir": "BUY", "entry": low20 + (ENTRY_ATR*atr), "sl": l - (STOP_ATR*atr), "type": f"TS {tipe}", "desc": f"Fakeout. Ekor {wick*100:.0f}%.", "trailing": True}
+        elif c <= low20 and age >= min_tsp:
+            setup = {"dir": "BUY", "entry": low20, "sl": l - (STOP_ATR*atr), "type": "TS+", "desc": "Breakout. Close di bawah Low.", "trailing": False}
             
-            if not pd.isna(atr) and atr > 0:
-                o, h, l, c = float(curr['Open']), float(curr['High']), float(curr['Low']), float(curr['Close'])
-                low20, high20 = float(lookback['Low'].min()), float(lookback['High'].max())
-                
-                if l < low20:
-                    age = len(lookback) - lookback['Low'].values.argmin()
-                    wick = (min(o,c) - l) / (h - l) if (h-l)>0 else 0
-                    if c > low20 and age >= 4: # TS
-                        setups["TS"] = {"dir": "BUY", "entry": low20 + (0.15*atr), "sl": l - (0.04*atr), "type": "TS BUY " + ("KUAT" if wick>=0.5 else "LEMAH"), "trailing": True}
-                    elif c <= low20 and age >= 3: # TS+
-                        setups["TS+"] = {"dir": "BUY", "entry": low20, "sl": l - (0.04*atr), "type": "TS+ BUY", "trailing": False}
-                
-                if h > high20:
-                    age = len(lookback) - lookback['High'].values.argmax()
-                    wick = (h - max(o,c)) / (h - l) if (h-l)>0 else 0
-                    if c < high20 and age >= 4: # TS
-                        setups["TS"] = {"dir": "SELL", "entry": high20 - (0.15*atr), "sl": h + (0.04*atr), "type": "TS SELL " + ("KUAT" if wick>=0.5 else "LEMAH"), "trailing": True}
-                    elif c >= high20 and age >= 3: # TS+
-                        setups["TS+"] = {"dir": "SELL", "entry": high20, "sl": h + (0.04*atr), "type": "TS+ SELL", "trailing": False}
-            state[f"{symbol}_H4"] = tgl_h4 # Tandai sudah dicek
+    if h > high20:
+        age = len(lookback) - lookback['High'].values.argmax()
+        wick = (h - max(o,c)) / (h - l) if (h-l)>0 else 0
+        if c < high20 and age >= min_ts:
+            tipe = "KUAT" if wick >= 0.5 else "LEMAH"
+            setup = {"dir": "SELL", "entry": high20 - (ENTRY_ATR*atr), "sl": h + (STOP_ATR*atr), "type": f"TS {tipe}", "desc": f"Fakeout. Ekor {wick*100:.0f}%.", "trailing": True}
+        elif c >= high20 and age >= min_tsp:
+            setup = {"dir": "SELL", "entry": high20, "sl": h + (STOP_ATR*atr), "type": "TS+", "desc": "Breakout. Close di atas High.", "trailing": False}
             
-    return setups
+    state[f"{symbol}_{tf_name}"] = tgl
+    return setup
 
 # =====================================================================
 # [BAGIAN 6] PROGRAM UTAMA
 # =====================================================================
 def jalankan():
-    print(f"[MULAI] Waktu UTC: {datetime.now(timezone.utc)}")
-    
+    print(f"[MULAI] {get_wib_time()}")
     state = load_json("state.json")
     active = load_json("active_setups.json")
-    sinyal_baru = []
+    bq = Biquote()
+    sinyal_kirim = []
 
     # --- FASE 1: CARI SETUP BARU ---
     for sym in PAIRS:
-        df_h4, t_h4 = get_data_biquote(sym, "4h")
-        df_d1, t_d1 = get_data_biquote(sym, "1d")
+        bid, ask, spread = get_live_tick(bq, sym)
+        if not bid: continue
         
-        new_setups = cek_setup(sym, df_h4, df_d1, state)
-        for k, v in new_setups.items():
+        df_h4, _ = get_data_biquote(bq, sym, "4h")
+        df_d1, _ = get_data_biquote(bq, sym, "1d")
+        
+        setups = {}
+        s_8020 = cek_8020(sym, df_d1, state)
+        if s_8020: setups["8020"] = s_8020
+        
+        s_ts = cek_ts(sym, df_h4, state, "H4", 4, 3)
+        if s_ts: setups["TS"] = s_ts
+        
+        for k, v in setups.items():
+            # Hitung R & 1R
+            R = abs(v['entry'] - v['sl'])
+            one_R = v['entry'] + R if v['dir'] == "BUY" else v['entry'] - R
+            spread_R = spread / R if R > 0 else 0
+            
+            # Filter Spread (Logika Claude)
+            filter_msg = ""
+            if spread_R > SPREAD_MAX_R:
+                filter_msg = f"\n❌ <b>FILTER SPREAD: LEWATI SINYAL INI</b>\nSpread/R terlalu besar ({spread_R:.2f}). Risiko tidak sebanding."
+            
+            msg = (f"⚠️ <b>[SETUP DITEMUKAN: {v['type']}]</b>\n"
+                   f"Pair: <b>{sym}</b> (H4/D1)\n"
+                   f"Waktu: {get_wib_time()}\n"
+                   f"👉 <b>Entry:</b> <code>{v['entry']:.5f}</code> ({v['dir']} STOP)\n"
+                   f"🛡 <b>SL:</b> <code>{v['sl']:.5f}</code>\n"
+                   f"🎯 <b>Target 1R:</b> <code>{one_R:.5f}</code>\n"
+                   f"ℹ️ <i>{v['desc']}</i>{filter_msg}\n"
+                   f"<i>Bot mengawasi harga. Segera pasang pending order jika belum.</i>")
+            
+            sinyal_kirim.append(msg)
             if sym not in active: active[sym] = {}
-            # Simpan ke active
+            v['status'] = 'WAITING'
+            v['time_setup'] = get_wib_time()
             active[sym][k] = v
-            sinyal_baru.append(f"⚠️ <b>[SETUP DITEMUKAN: {v['type']}]</b>\nPair: {sym}\nEntry: {v['entry']:.5f} ({v['dir']} STOP)\nSL: {v['sl']:.5f}\n<i>Bot sedang mengawasi harga...</i>")
 
-    # --- FASE 2: PANTAU TRIGGER & TRAILING SL ---
-    sinyal_trigger = []
+    # --- FASE 2: PANTAU TRIGGER & EXPIRED ---
     for sym in list(active.keys()):
-        harga_live = get_harga_live(sym)
-        if not harga_live: continue
+        bid, ask, _ = get_live_tick(bq, sym)
+        if not bid: continue
         
         for key in list(active[sym].keys()):
             s = active[sym][key]
-            triggered = False
             
-            # Cek Trigger
-            if s['dir'] == "BUY" and harga_live >= s['entry']:
-                triggered = True
-            elif s['dir'] == "SELL" and harga_live <= s['entry']:
-                triggered = True
-                
-            if triggered:
-                sinyal_trigger.append(f"🚨 <b>[TRIGGERED!]</b>\n{s['type']}\nPair: {sym}\nHarga Live: {harga_live:.5f}\n👉 <b>ENTRY {s['dir']} SEKARANG!</b>\nSL: {s['sl']:.5f}")
-                del active[sym][key] # Hapus dari pantauan
-                continue # Lanjut ke pair berikutnya
-                
-            # Cek Trailing SL (Khusus TS)
-            if s.get('trailing') and not triggered:
-                sl_baru = s['sl']
-                if s['dir'] == "BUY" and harga_live < s['sl']:
-                    # Update SL berdasarkan harga live (trailing)
-                    # (Ini simplifikasi, SL sebenarnya pakai Low candle berjalan)
-                    pass 
+            if s['status'] == 'WAITING':
+                # Cek Trigger
+                if (s['dir'] == "BUY" and bid >= s['entry']) or (s['dir'] == "SELL" and bid <= s['entry']):
+                    s['status'] = 'TRIGGERED'
+                    msg = (f"🔔 <b>LAPORAN: HARGA TERSENGGOL</b>\n"
+                           f"Pair: <b>{sym}</b> ({s['type']})\n"
+                           f"Harga Live: <code>{bid:.5f}</code>\n\n"
+                           f"👉 <i>Jika Anda sudah pasang {s['dir']} Stop, posisi Anda kini sudah TERBUKA. Cek MT4 Anda!</i>")
+                    sinyal_kirim.append(msg)
+            
+            elif s['status'] == 'TRIGGERED':
+                # Update Trailing SL (Khusus TS)
+                if s.get('trailing'):
+                    if s['dir'] == "BUY" and bid > s['entry'] + (abs(s['entry']-s['sl'])*0.5):
+                        new_sl = s['entry'] # Geser SL ke BEP jika profit 0.5R
+                        if new_sl > s['sl']:
+                            s['sl'] = new_sl
+                            msg = (f"🔄 <b>UPDATE SL (Trailing)</b>\n"
+                                   f"Pair: <b>{sym}</b>\n"
+                                   f"Harga Live: <code>{bid:.5f}</code>\n"
+                                   f"👉 <i>Pindahkan SL Anda ke <code>{new_sl:.5f}</code> (Break Even).</i>")
+                            sinyal_kirim.append(msg)
+            
+            # Cek Expired (Basi)
+            # Jika sudah lewat 1 candle H4 (4 jam) dan belum trigger
+            if s['status'] == 'WAITING' and s.get('time_setup'):
+                # Logika expired disederhanakan: Jika bot bangun lagi dan candle H4 baru sudah masuk, hapus setup lama
+                tgl_sekarang = str(df_h4.index[-1]) if df_h4 is not None else ""
+                if s.get('tgl_setup') and s['tgl_setup'] != tgl_sekarang:
+                    msg = (f"⚠️ <b>SETUP EXPIRED / BATAL</b>\n"
+                           f"Pair: <b>{sym}</b> ({s['type']})\n"
+                           f"Candle H4 baru sudah terbentuk dan harga tidak menyentuh Entry.\n"
+                           f"👉 <i>Segera BATALKAN pending order Anda di MT4.</i>")
+                    sinyal_kirim.append(msg)
+                    del active[sym][key]
 
-    # --- FASE 3: SIMPAN STATE & KIRIM NOTIF ---
+    # --- FASE 3: SIMPAN & KIRIM ---
     save_json("state.json", state)
     save_json("active_setups.json", active)
     
-    if sinyal_baru:
-        kirim_telegram("🔍 <b>Pemindaian Selesai. Setup Baru Ditemukan!</b>")
-        for s in sinyal_baru: kirim_telegram(s)
-        
-    if sinyal_trigger:
-        for s in sinyal_trigger: kirim_telegram(s)
-        
-    if not sinyal_baru and not sinyal_trigger:
-        print("[INFO] Tidak ada setup atau trigger baru.")
+    if sinyal_kirim:
+        for msg in sinyal_kirim:
+            kirim_telegram(msg)
+            time.sleep(1) # Jeda agar tidak dianggap spam
+    else:
+        print("[INFO] Tidak ada sinyal/setup baru.")
 
 if __name__ == "__main__":
     kirim_telegram("🧪 <b>TES KONEKSI:</b> Halo Indra, bot GitHub saya sudah berhasil terhubung ke Telegram!")
