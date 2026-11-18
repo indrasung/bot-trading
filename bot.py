@@ -19,9 +19,9 @@ PAIRS = [
     "AUDCAD", "EURCAD", "GBPCAD", "XAUUSD", "BTCUSD"
 ]
 
-SPREAD_MAX_R = 0.15 # Batas maksimal Spread / R
-ENTRY_ATR = 0.15    # Buffer Entry
-STOP_ATR = 0.04     # Buffer Stop Loss
+SPREAD_MAX_R = 0.15
+ENTRY_ATR = 0.15
+STOP_ATR = 0.04
 
 # =====================================================================
 # [BAGIAN 2] UTILITAS & MEMORY
@@ -82,8 +82,7 @@ def get_data_biquote(bq, symbol, timeframe):
             df['time'] = pd.to_datetime(df['time'])
             df.set_index('time', inplace=True)
         df.rename(columns={'open':'Open', 'high':'High', 'low':'Low', 'close':'Close'}, inplace=True)
-        # Buang candle yang sedang berjalan
-        df_closed = df.iloc[:-1]
+        df_closed = df.iloc[:-1] # Buang candle berjalan
         return df_closed, str(df_closed.index[-1])
     except Exception:
         return None, None
@@ -165,7 +164,6 @@ def jalankan():
     bq = Biquote()
     sinyal_kirim = []
 
-    # --- FASE 1: CARI SETUP BARU ---
     for sym in PAIRS:
         bid, ask, spread = get_live_tick(bq, sym)
         if not bid: continue
@@ -181,18 +179,17 @@ def jalankan():
         if s_ts: setups["TS"] = s_ts
         
         for k, v in setups.items():
-            # Hitung R & 1R
             R = abs(v['entry'] - v['sl'])
             one_R = v['entry'] + R if v['dir'] == "BUY" else v['entry'] - R
             spread_R = spread / R if R > 0 else 0
             
-            # Filter Spread (Logika Claude)
             filter_msg = ""
             if spread_R > SPREAD_MAX_R:
                 filter_msg = f"\n❌ <b>FILTER SPREAD: LEWATI SINYAL INI</b>\nSpread/R terlalu besar ({spread_R:.2f}). Risiko tidak sebanding."
             
+            tf_label = "H4" if "TS" in v['type'] else "D1"
             msg = (f"⚠️ <b>[SETUP DITEMUKAN: {v['type']}]</b>\n"
-                   f"Pair: <b>{sym}</b> (H4/D1)\n"
+                   f"Pair: <b>{sym}</b> ({tf_label})\n"
                    f"Waktu: {get_wib_time()}\n"
                    f"👉 <b>Entry:</b> <code>{v['entry']:.5f}</code> ({v['dir']} STOP)\n"
                    f"🛡 <b>SL:</b> <code>{v['sl']:.5f}</code>\n"
@@ -204,9 +201,9 @@ def jalankan():
             if sym not in active: active[sym] = {}
             v['status'] = 'WAITING'
             v['time_setup'] = get_wib_time()
+            v['tgl_setup'] = str(df_h4.index[-1]) if df_h4 is not None else ""
             active[sym][k] = v
 
-    # --- FASE 2: PANTAU TRIGGER & EXPIRED ---
     for sym in list(active.keys()):
         bid, ask, _ = get_live_tick(bq, sym)
         if not bid: continue
@@ -215,20 +212,19 @@ def jalankan():
             s = active[sym][key]
             
             if s['status'] == 'WAITING':
-                # Cek Trigger
                 if (s['dir'] == "BUY" and bid >= s['entry']) or (s['dir'] == "SELL" and bid <= s['entry']):
                     s['status'] = 'TRIGGERED'
+                    tf_label = "H4" if "TS" in s['type'] else "D1"
                     msg = (f"🔔 <b>LAPORAN: HARGA TERSENGGOL</b>\n"
-                           f"Pair: <b>{sym}</b> ({s['type']})\n"
+                           f"Pair: <b>{sym}</b> ({tf_label} - {s['type']})\n"
                            f"Harga Live: <code>{bid:.5f}</code>\n\n"
                            f"👉 <i>Jika Anda sudah pasang {s['dir']} Stop, posisi Anda kini sudah TERBUKA. Cek MT4 Anda!</i>")
                     sinyal_kirim.append(msg)
             
             elif s['status'] == 'TRIGGERED':
-                # Update Trailing SL (Khusus TS)
                 if s.get('trailing'):
                     if s['dir'] == "BUY" and bid > s['entry'] + (abs(s['entry']-s['sl'])*0.5):
-                        new_sl = s['entry'] # Geser SL ke BEP jika profit 0.5R
+                        new_sl = s['entry']
                         if new_sl > s['sl']:
                             s['sl'] = new_sl
                             msg = (f"🔄 <b>UPDATE SL (Trailing)</b>\n"
@@ -237,30 +233,25 @@ def jalankan():
                                    f"👉 <i>Pindahkan SL Anda ke <code>{new_sl:.5f}</code> (Break Even).</i>")
                             sinyal_kirim.append(msg)
             
-            # Cek Expired (Basi)
-            # Jika sudah lewat 1 candle H4 (4 jam) dan belum trigger
-            if s['status'] == 'WAITING' and s.get('time_setup'):
-                # Logika expired disederhanakan: Jika bot bangun lagi dan candle H4 baru sudah masuk, hapus setup lama
-                tgl_sekarang = str(df_h4.index[-1]) if df_h4 is not None else ""
-                if s.get('tgl_setup') and s['tgl_setup'] != tgl_sekarang:
+            if s['status'] == 'WAITING' and s.get('tgl_setup'):
+                if df_h4 is not None and s['tgl_setup'] != str(df_h4.index[-1]):
+                    tf_label = "H4" if "TS" in s['type'] else "D1"
                     msg = (f"⚠️ <b>SETUP EXPIRED / BATAL</b>\n"
-                           f"Pair: <b>{sym}</b> ({s['type']})\n"
-                           f"Candle H4 baru sudah terbentuk dan harga tidak menyentuh Entry.\n"
+                           f"Pair: <b>{sym}</b> ({tf_label} - {s['type']})\n"
+                           f"Candle baru sudah terbentuk dan harga tidak menyentuh Entry.\n"
                            f"👉 <i>Segera BATALKAN pending order Anda di MT4.</i>")
                     sinyal_kirim.append(msg)
                     del active[sym][key]
 
-    # --- FASE 3: SIMPAN & KIRIM ---
     save_json("state.json", state)
     save_json("active_setups.json", active)
     
     if sinyal_kirim:
         for msg in sinyal_kirim:
             kirim_telegram(msg)
-            time.sleep(1) # Jeda agar tidak dianggap spam
+            time.sleep(1)
     else:
         print("[INFO] Tidak ada sinyal/setup baru.")
 
 if __name__ == "__main__":
-    kirim_telegram("🧪 <b>TES KONEKSI:</b> Halo Indra, bot GitHub saya sudah berhasil terhubung ke Telegram!")
     jalankan()
