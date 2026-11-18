@@ -30,8 +30,13 @@ def get_wib_time(dt_utc=None):
 
 def load_json(filename):
     if os.path.exists(filename):
-        with open(filename, 'r') as f:
-            return json.load(f)
+        try:
+            with open(filename, 'r') as f:
+                content = f.read()
+                if not content: return {} # Jika file kosong
+                return json.loads(content)
+        except:
+            return {} # Jika file rusak
     return {}
 
 def save_json(filename, data):
