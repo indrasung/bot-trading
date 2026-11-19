@@ -1,2 +1,76 @@
 {
+    "GBPUSD": {
+        "8020": {
+            "dir": "BUY",
+            "level_entry": 1.313585,
+            "atr_d1": 0.006597857142857163,
+            "type": "80-20 BUY",
+            "status": "WAITING",
+            "desc": "Candle turun tajam (Bearish)."
+        }
+    },
+    "USDJPY": {
+        "TS": {
+            "dir": "SELL",
+            "entry": 159.8605,
+            "sl": 159.95907857142856,
+            "type": "TS+",
+            "desc": "High lama candle -20 (159.86). Breakout.",
+            "status": "WAITING",
+            "atr_h4": 0.28946428571428434
+        }
+    },
+    "NZDUSD": {
+        "TS": {
+            "dir": "SELL",
+            "entry": 0.5526337857142857,
+            "sl": 0.5534176571428571,
+            "type": "TS LEMAH",
+            "desc": "High lama candle -20 (0.55). Ekor 16%.",
+            "status": "TRIGGERED",
+            "atr_h4": 0.0014414285714285538
+        }
+    },
+    "EURGBP": {
+        "8020": {
+            "dir": "SELL",
+            "level_entry": 0.834765,
+            "atr_d1": 0.0019057142857142725,
+            "type": "80-20 SELL",
+            "status": "WARNING",
+            "desc": "Candle naik tajam (Bullish)."
+        }
+    },
+    "NZDJPY": {
+        "TS": {
+            "dir": "SELL",
+            "entry": 88.329,
+            "sl": 88.49382285714286,
+            "type": "TS+",
+            "desc": "High lama candle -20 (88.33). Breakout.",
+            "status": "TRIGGERED",
+            "atr_h4": 0.2705714285714273
+        }
+    },
+    "GBPCAD": {
+        "TS": {
+            "dir": "BUY",
+            "entry": 1.8821716607142855,
+            "sl": 1.8805665571428571,
+            "type": "TS LEMAH",
+            "desc": "Low lama candle -5 (1.88). Ekor 31%.",
+            "status": "WAITING",
+            "atr_h4": 0.002711071428571426
+        }
+    },
+    "XAUUSD": {
+        "8020": {
+            "dir": "BUY",
+            "level_entry": 3719.882,
+            "atr_d1": 85.96835714285723,
+            "type": "80-20 BUY",
+            "status": "WARNING",
+            "desc": "Candle turun tajam (Bearish)."
+        }
+    }
 }
