@@ -15,7 +15,7 @@
             "level_entry": 0.834765,
             "atr_d1": 0.0019057142857142725,
             "type": "80-20 SELL",
-            "status": "WARNING",
+            "status": "EXECUTION",
             "desc": "Candle naik tajam (Bullish)."
         }
     },
