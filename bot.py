@@ -33,6 +33,7 @@ EXEC_ATR = 0.10
 # [BAGIAN 2] UTILITAS & MEMORY
 # =====================================================================
 def get_wib_time():
+    # Format: DD Mmm YY, HH:MM WIB (Tanpa detik)
     return (datetime.now(timezone.utc) + timedelta(hours=7)).strftime("%d %b %y, %H:%M WIB")
 
 def load_json(filename):
@@ -116,9 +117,9 @@ def cek_8020(symbol, df, state):
     setup = None
     
     if o >= top and c <= bot: 
-        setup = {"dir": "BUY", "level_entry": l, "atr_d1": atr_d1, "type": "80-20 BUY", "status": "WAITING", "desc": "Candle turun tajam (Bearish)."}
+        setup = {"dir": "BUY", "level_entry": l, "atr_d1": atr_d1, "type": "80-20 BUY", "status": "WAITING"}
     elif o <= bot and c >= top: 
-        setup = {"dir": "SELL", "level_entry": h, "atr_d1": atr_d1, "type": "80-20 SELL", "status": "WAITING", "desc": "Candle naik tajam (Bullish)."}
+        setup = {"dir": "SELL", "level_entry": h, "atr_d1": atr_d1, "type": "80-20 SELL", "status": "WAITING"}
         
     state[f"{symbol}_D1"] = tgl
     return setup
@@ -143,18 +144,18 @@ def cek_ts(symbol, df, state, tf_name, min_ts, min_tsp):
         wick = (min(o,c) - l) / (h - l) if (h-l)>0 else 0
         if c > low20 and age >= min_ts:
             tipe = "KUAT" if wick >= 0.5 else "LEMAH"
-            setup = {"dir": "BUY", "entry": low20 + (ENTRY_ATR*atr), "sl": l - (STOP_ATR*atr), "type": f"TS {tipe}", "desc": f"Low lama candle -{age} ({low20:.2f}). Ekor {wick*100:.0f}%.", "status": "WAITING", "atr_h4": atr}
+            setup = {"dir": "BUY", "entry": low20 + (ENTRY_ATR*atr), "sl": l - (STOP_ATR*atr), "type": f"TS {tipe}", "status": "WAITING", "trailing": True}
         elif c <= low20 and age >= min_tsp:
-            setup = {"dir": "BUY", "entry": low20, "sl": l - (STOP_ATR*atr), "type": "TS+", "desc": f"Low lama candle -{age} ({low20:.2f}). Breakout.", "status": "WAITING", "atr_h4": atr}
+            setup = {"dir": "BUY", "entry": low20, "sl": l - (STOP_ATR*atr), "type": "TS+", "status": "WAITING", "trailing": False}
             
     if h > high20:
         age = len(lookback) - lookback['High'].values.argmax()
         wick = (h - max(o,c)) / (h - l) if (h-l)>0 else 0
         if c < high20 and age >= min_ts:
             tipe = "KUAT" if wick >= 0.5 else "LEMAH"
-            setup = {"dir": "SELL", "entry": high20 - (ENTRY_ATR*atr), "sl": h + (STOP_ATR*atr), "type": f"TS {tipe}", "desc": f"High lama candle -{age} ({high20:.2f}). Ekor {wick*100:.0f}%.", "status": "WAITING", "atr_h4": atr}
+            setup = {"dir": "SELL", "entry": high20 - (ENTRY_ATR*atr), "sl": h + (STOP_ATR*atr), "type": f"TS {tipe}", "status": "WAITING", "trailing": True}
         elif c >= high20 and age >= min_tsp:
-            setup = {"dir": "SELL", "entry": high20, "sl": h + (STOP_ATR*atr), "type": "TS+", "desc": f"High lama candle -{age} ({high20:.2f}). Breakout.", "status": "WAITING", "atr_h4": atr}
+            setup = {"dir": "SELL", "entry": high20, "sl": h + (STOP_ATR*atr), "type": "TS+", "status": "WAITING", "trailing": False}
             
     state[f"{symbol}_{tf_name}"] = tgl
     return setup
@@ -163,7 +164,9 @@ def cek_ts(symbol, df, state, tf_name, min_ts, min_tsp):
 # [BAGIAN 6] PROGRAM UTAMA
 # =====================================================================
 def jalankan():
-    print(f"[MULAI] {get_wib_time()}")
+    waktu_proses = get_wib_time()
+    print(f"[MULAI] {waktu_proses}")
+    
     state = load_json("state.json")
     active = load_json("active_setups.json")
     bq = Biquote()
@@ -189,29 +192,21 @@ def jalankan():
             active[sym][k] = v
             
             if k == "8020":
-                # [TAMBAHAN BARU] Notifikasi Setup Awal 80-20
-                target_exec = v['level_entry'] - (EXEC_ATR * v['atr_d1']) if v['dir'] == "BUY" else v['level_entry'] + (EXEC_ATR * v['atr_d1'])
-                target_warn = v['level_entry'] - (WARNING_ATR * v['atr_d1']) if v['dir'] == "BUY" else v['level_entry'] + (WARNING_ATR * v['atr_d1'])
+                warn = v['level_entry'] - (WARNING_ATR * v['atr_d1']) if v['dir'] == "BUY" else v['level_entry'] + (WARNING_ATR * v['atr_d1'])
+                exec = v['level_entry'] - (EXEC_ATR * v['atr_d1']) if v['dir'] == "BUY" else v['level_entry'] + (EXEC_ATR * v['atr_d1'])
                 
-                msg = (f"🔍 <b>[SETUP AWAL: {v['type']}]</b>\n"
-                       f"Pair: <b>{sym}</b> (D1)\n"
-                       f"👉 <b>Level Entry:</b> <code>{v['level_entry']:.5f}</code> ({v['dir']} STOP)\n"
-                       f"⚠️ <b>Batas Warning:</b> <code>{target_warn:.5f}</code>\n"
-                       f"🚨 <b>Batas Eksekusi:</b> <code>{target_exec:.5f}</code>\n"
-                       f"ℹ️ <i>{v['desc']}</i>\n"
-                       f"<i>Bot akan mengawasi. Anda hanya akan dihubungi lagi saat harga menyentuh Warning atau Eksekusi.</i>")
+                msg = (f"🔍 <b>{sym}</b> - SETUP {v['type']} - {waktu_proses}\n"
+                       f"Entry: <code>{v['level_entry']:.5f}</code> ({v['dir']} Stop)\n"
+                       f"Warn: <code>{warn:.5f}</code>\n"
+                       f"Exec: <code>{exec:.5f}</code>")
                 sinyal_kirim.append(msg)
             else:
-                # Notif Setup TS / TS+
                 R = abs(v['entry'] - v['sl'])
                 one_R = v['entry'] + R if v['dir'] == "BUY" else v['entry'] - R
-                msg = (f"⚠️ <b>[SETUP DITEMUKAN: {v['type']}]</b>\n"
-                       f"Pair: <b>{sym}</b> (H4)\n"
-                       f"👉 <b>Entry:</b> <code>{v['entry']:.5f}</code> ({v['dir']} STOP)\n"
-                       f"🛡 <b>SL:</b> <code>{v['sl']:.5f}</code>\n"
-                       f"🎯 <b>Target 1R:</b> <code>{one_R:.5f}</code>\n"
-                       f"ℹ️ <i>{v['desc']}</i>\n"
-                       f"<i>Segera pasang pending order.</i>")
+                msg = (f"🔍 <b>{sym}</b> - {v['type']} {v['dir']} - {waktu_proses}\n"
+                       f"Entry: <code>{v['entry']:.5f}</code> ({v['dir']} Stop)\n"
+                       f"SL: <code>{v['sl']:.5f}</code>\n"
+                       f"1R: <code>{one_R:.5f}</code>")
                 sinyal_kirim.append(msg)
 
     # --- FASE 2: PANTAU TRIGGER & PENGINGAT ---
@@ -223,10 +218,10 @@ def jalankan():
             s = active[sym][key]
             
             # ==========================================
-            # LOGIKA KHUSUS 80-20 (Sistem 3 Tahap)
+            # LOGIKA KHUSUS 80-20
             # ==========================================
             if key == "8020":
-                # PERBAIKAN FATAL: Hitung jarak HANYA JIKA searah dengan setup
+                # Hitung jarak searah saja
                 dist = 0
                 if s['dir'] == "BUY" and bid < s['level_entry']:
                     dist = s['level_entry'] - bid
@@ -237,21 +232,17 @@ def jalankan():
                 if s['status'] == 'WAITING' and dist >= (WARNING_ATR * s['atr_d1']):
                     s['status'] = 'WARNING'
                     target_exec = s['level_entry'] - (EXEC_ATR * s['atr_d1']) if s['dir'] == "BUY" else s['level_entry'] + (EXEC_ATR * s['atr_d1'])
-                    msg = (f"⚠️ <b>[WARNING: {s['type']} - {sym}]</b>\n"
-                           f"Harga mulai menjebol level kemarin.\n"
-                           f"🎯 <b>Target Eksekusi (0.1 ATR):</b> <code>{target_exec:.5f}</code>\n"
-                           f"<i>Bersiaplah di MT4.</i>")
+                    msg = (f"⚠️ <b>{sym}</b> - WARN {s['type']} - {waktu_proses}\n"
+                           f"Target Pemicu: <code>{target_exec:.5f}</code>")
                     sinyal_kirim.append(msg)
                 
                 # Tahap 2: Eksekusi
                 elif s['status'] == 'WARNING' and dist >= (EXEC_ATR * s['atr_d1']):
                     s['status'] = 'EXECUTION'
-                    sl_temp = bid 
-                    msg = (f"🚨 <b>[EKSEKUSI: {s['type']} - {sym}]</b>\n"
-                           f"Fakeout Terkonfirmasi!\n"
-                           f"👉 <b>SEGERA PASANG {s['dir']} STOP DI:</b> <code>{s['level_entry']:.5f}</code>\n"
-                           f"🛡 <b>SL Sementara:</b> <code>{sl_temp:.5f}</code>\n"
-                           f"⚠️ <i>Geser SL jika harga bergerak lebih jauh sebelum order tersentuh.</i>")
+                    sl_temp = "Puncak tertinggi hari ini" if s['dir'] == "SELL" else "Dasar terendah hari ini"
+                    msg = (f"🚨 <b>{sym}</b> - EXEC {s['type']} - {waktu_proses}\n"
+                           f"👉 {s['dir']} Stop: <code>{s['level_entry']:.5f}</code>\n"
+                           f"🛡 SL: {sl_temp}")
                     sinyal_kirim.append(msg)
                 
                 # Tahap 3: Tersenggol & Trailing
@@ -259,7 +250,7 @@ def jalankan():
                     is_triggered = (s['dir'] == "BUY" and bid >= s['level_entry']) or (s['dir'] == "SELL" and bid <= s['level_entry'])
                     if is_triggered:
                         s['status'] = 'TRIGGERED'
-                        msg = f"🔔 <b>[TERSENGGOL: {s['type']} - {sym}]</b>\nHarga menyentuh Entry. Posisi Anda harusnya sudah terbuka."
+                        msg = f"🔔 <b>{sym}</b> - TERSENGGOL - {waktu_proses}\nHarga: <code>{bid:.5f}</code>"
                         sinyal_kirim.append(msg)
                         
                 elif s['status'] == 'TRIGGERED':
@@ -268,7 +259,7 @@ def jalankan():
                         low3 = float(df_d1['Low'].tail(3).min()) if s['dir'] == "BUY" else float(df_d1['High'].tail(3).max())
                         if s['dir'] == "BUY" and low3 > s.get('sl_aktif', 0):
                             s['sl_aktif'] = low3
-                            msg = f"🔄 <b>[UPDATE SL: {sym}]</b>\nPindahkan SL Anda ke: <code>{low3:.5f}</code> (Mengikuti Low 3 Candle)."
+                            msg = f"🔄 <b>{sym}</b> - UPDATE SL - {waktu_proses}\nPindahkan SL ke: <code>{low3:.5f}</code>"
                             sinyal_kirim.append(msg)
             
             # ==========================================
@@ -278,7 +269,7 @@ def jalankan():
                 if s['status'] == 'WAITING':
                     if (s['dir'] == "BUY" and bid >= s['entry']) or (s['dir'] == "SELL" and bid <= s['entry']):
                         s['status'] = 'TRIGGERED'
-                        msg = (f"🔔 <b>LAPORAN: HARGA TERSENGGOL</b>\nPair: <b>{sym}</b> (H4 - {s['type']})\nHarga Live: <code>{bid:.5f}</code>\n👉 <i>Cek MT4 Anda.</i>")
+                        msg = f"🔔 <b>{sym}</b> - TERSENGGOL - {waktu_proses}\nHarga: <code>{bid:.5f}</code>"
                         sinyal_kirim.append(msg)
                 
                 elif s['status'] == 'TRIGGERED':
@@ -287,10 +278,23 @@ def jalankan():
                             new_sl = s['entry']
                             if new_sl > s['sl']:
                                 s['sl'] = new_sl
-                                msg = f"🔄 <b>UPDATE SL (Trailing)</b>\nPair: <b>{sym}</b>\nPindahkan SL ke <code>{new_sl:.5f}</code> (Break Even)."
+                                msg = f"🔄 <b>{sym}</b> - UPDATE SL - {waktu_proses}\nPindahkan SL ke: <code>{new_sl:.5f}</code> (BE)"
                                 sinyal_kirim.append(msg)
 
-    # --- FASE 3: SIMPAN & KIRIM ---
+    # --- FASE 3: EXIT WARNING 80-20 (1 Jam Sebelum D1 Tutup) ---
+    # Asumsi server MT4 = UTC+2 (Candle D1 tutup jam 23:00 UTC / 06:00 WIB)
+    # 1 Jam sebelum tutup = 22:00 UTC / 05:00 WIB
+    now_utc = datetime.now(timezone.utc)
+    if now_utc.hour == 22: # Cek apakah jam 22:00 UTC (05:00 WIB)
+        for sym in list(active.keys()):
+            if "8020" in active[sym]:
+                s = active[sym]["8020"]
+                if s['status'] in ['EXECUTION', 'TRIGGERED']:
+                    msg = f"⏰ <b>{sym}</b> - EXIT 80-20 - {waktu_proses}\n👉 Segera tutup posisi di MT4."
+                    sinyal_kirim.append(msg)
+                    del active[sym]["8020"] # Hapus dari memori setelah exit warning
+
+    # --- FASE 4: SIMPAN & KIRIM ---
     save_json("state.json", state)
     save_json("active_setups.json", active)
     
