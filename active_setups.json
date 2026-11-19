@@ -37,7 +37,7 @@
             "level_entry": 0.834765,
             "atr_d1": 0.0019057142857142725,
             "type": "80-20 SELL",
-            "status": "WARNING",
+            "status": "EXECUTION",
             "desc": "Candle naik tajam (Bullish)."
         }
     },
@@ -69,7 +69,7 @@
             "level_entry": 3719.882,
             "atr_d1": 85.96835714285723,
             "type": "80-20 BUY",
-            "status": "WARNING",
+            "status": "EXECUTION",
             "desc": "Candle turun tajam (Bearish)."
         }
     }
