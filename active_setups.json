@@ -16,7 +16,7 @@
             "sl": 159.95907857142856,
             "type": "TS+",
             "desc": "High lama candle -20 (159.86). Breakout.",
-            "status": "WAITING",
+            "status": "TRIGGERED",
             "atr_h4": 0.28946428571428434
         }
     },
