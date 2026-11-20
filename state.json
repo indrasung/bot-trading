@@ -28,5 +28,12 @@
     "XAUUSD_D1": "49",
     "XAUUSD_H4": "49",
     "BTCUSD_D1": "49",
-    "BTCUSD_H4": "49"
+    "BTCUSD_H4": "49",
+    "EURUSD_D1": "49",
+    "USDJPY_D1": "49",
+    "AUDUSD_D1": "49",
+    "USDCAD_D1": "49",
+    "NZDUSD_D1": "49",
+    "NZDJPY_D1": "49",
+    "AUDCAD_D1": "49"
 }
