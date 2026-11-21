@@ -1,2 +1,66 @@
 {
+    "AUDUSD": {
+        "8020": {
+            "dir": "BUY",
+            "level_entry": 0.66481,
+            "atr_d1": 0.005441428571428574,
+            "type": "80-20 BUY",
+            "status": "WARNING"
+        }
+    },
+    "NZDUSD": {
+        "TS": {
+            "dir": "BUY",
+            "entry": 0.54756,
+            "sl": 0.5470359714285714,
+            "type": "TS+",
+            "status": "WAITING",
+            "trailing": false
+        }
+    },
+    "EURGBP": {
+        "8020": {
+            "dir": "SELL",
+            "level_entry": 0.838405,
+            "atr_d1": 0.002070714285714267,
+            "type": "80-20 SELL",
+            "status": "WAITING"
+        }
+    },
+    "GBPCHF": {
+        "8020": {
+            "dir": "BUY",
+            "level_entry": 1.10421,
+            "atr_d1": 0.004855357142857167,
+            "type": "80-20 BUY",
+            "status": "WARNING"
+        }
+    },
+    "AUDCAD": {
+        "8020": {
+            "dir": "BUY",
+            "level_entry": 0.953295,
+            "atr_d1": 0.0058439285714286015,
+            "type": "80-20 BUY",
+            "status": "WARNING"
+        }
+    },
+    "GBPCAD": {
+        "8020": {
+            "dir": "BUY",
+            "level_entry": 1.875335,
+            "atr_d1": 0.006293571428571438,
+            "type": "80-20 BUY",
+            "status": "WAITING"
+        }
+    },
+    "XAUUSD": {
+        "8020": {
+            "dir": "BUY",
+            "level_entry": 3590.812,
+            "atr_d1": 92.53435714285722,
+            "type": "80-20 BUY",
+            "status": "WARNING"
+        }
+    }
 }
