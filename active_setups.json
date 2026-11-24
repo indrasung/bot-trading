@@ -6,7 +6,7 @@
             "entry": 1.09531,
             "sl": 1.0878792857142858,
             "tf": "1d",
-            "setup_time": "99",
+            "setup_time": "498",
             "status": "WAITING",
             "trailing": false
         }
@@ -18,7 +18,7 @@
             "entry": 1.435745,
             "sl": 1.4386611142857144,
             "tf": "1d",
-            "setup_time": "99",
+            "setup_time": "498",
             "status": "TRIGGERED",
             "trailing": false
         }
@@ -30,7 +30,7 @@
             "level_entry": 0.917195,
             "atr_val": 0.0035792857142857132,
             "tf": "1d",
-            "setup_time": "99",
+            "setup_time": "498",
             "status": "WAITING"
         }
     },
@@ -41,7 +41,7 @@
             "level_entry": 1.09636,
             "atr_val": 0.004682500000000002,
             "tf": "1d",
-            "setup_time": "99",
+            "setup_time": "498",
             "status": "WAITING"
         }
     }
