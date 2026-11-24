@@ -1,24 +1,2 @@
 {
-    "EURCHF": {
-        "8020": {
-            "type": "80-20 BUY",
-            "dir": "BUY",
-            "level_entry": 0.917195,
-            "atr_val": 0.0035792857142857132,
-            "tf": "1d",
-            "setup_time": "99",
-            "status": "WAITING"
-        }
-    },
-    "GBPCHF": {
-        "8020": {
-            "type": "80-20 BUY",
-            "dir": "BUY",
-            "level_entry": 1.09636,
-            "atr_val": 0.004682500000000002,
-            "tf": "1d",
-            "setup_time": "99",
-            "status": "WAITING"
-        }
-    }
 }
