@@ -19,7 +19,7 @@
             "sl": 1.4386611142857144,
             "tf": "1d",
             "setup_time": "99",
-            "status": "WAITING",
+            "status": "TRIGGERED",
             "trailing": false
         }
     },
