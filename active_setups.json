@@ -43,7 +43,8 @@
             "tf": "1d",
             "setup_time": "498",
             "status": "TRIGGERED",
-            "sl_aktif": 1.09636
+            "sl_aktif": 1.09636,
+            "exit_warned": true
         }
     }
 }
