@@ -84,19 +84,24 @@ def hitung_atr(df, period=14):
     return tr.rolling(window=period).mean()
 
 def hitung_lbr_rsi(df):
-    # RSI(3) dari Rate of Change (1)
-    delta = df['Close'].diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(alpha=1/3, adjust=False).mean() 
+    # Rumus LBR/RSI asli buku Street Smarts:
+    # RSI(3) dari Rate of Change (ROC) 1-periode
+    roc = df['Close'].diff()       # 1. Hitung ROC
+    delta_roc = roc.diff()         # 2. Hitung perubahan ROC
+    gain = delta_roc.clip(lower=0)
+    loss = -delta_roc.clip(upper=0)
+    
+    # Wilder's Smoothing (RSI 3-periode)
+    avg_gain = gain.ewm(alpha=1/3, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1/3, adjust=False).mean()
+    
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
     return rsi.iloc[-1]
 
 def get_data_biquote(bq, symbol, timeframe):
     try:
-        limit = 100 if timeframe == "1d" else 50
+        limit = 500 # Ubah limit menjadi 500 agar data histori banyak
         bars = bq.ohlc(symbol, interval=timeframe, limit=limit)
         if not bars: return None, None
         df = pd.DataFrame(bars)
