@@ -36,5 +36,11 @@
     "XAUUSD_TS": "498",
     "XAUUSD_8020": "498",
     "BTCUSD_TS": "498",
-    "BTCUSD_8020": "498"
+    "BTCUSD_8020": "498",
+    "pinball_watch_date": "2026-11-25",
+    "pinball_watch_pairs": [
+        "EURUSD",
+        "EURCAD",
+        "XAUUSD"
+    ]
 }
