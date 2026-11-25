@@ -423,4 +423,4 @@ def jalankan():
     else:
         print("[INFO] Tidak ada sinyal/setup baru.")
 
-if __name
+if __name__ == "__main__": jalankan()
