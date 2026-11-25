@@ -36,10 +36,6 @@
     "XAUUSD_8020": "1970-01-01 00:00:00.000000498",
     "BTCUSD_TS": "1970-01-01 00:00:00.000000498",
     "pinball_watch_date": "2026-11-26",
-    "pinball_watch_pairs": [
-        "EURUSD",
-        "GBPUSD",
-        "NZDUSD",
-        "USDCHF"
-    ]
+    "pinball_watch_pairs": [],
+    "pinball_entry_date": "2026-11-26"
 }
