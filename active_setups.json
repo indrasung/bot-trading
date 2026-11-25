@@ -18,7 +18,8 @@
             "atr_val": 0.005521785714285743,
             "tf": "1d",
             "setup_time": "1970-01-01 00:00:00.000000498",
-            "status": "TRIGGERED"
+            "status": "TRIGGERED",
+            "sl_aktif": 1.426575
         }
     },
     "USDCHF": {
