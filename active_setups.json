@@ -29,7 +29,7 @@
             "atr_val": 0.0052621428571428585,
             "tf": "1d",
             "setup_time": "1970-01-01 00:00:00.000000498",
-            "status": "WAITING"
+            "status": "WARNING"
         }
     },
     "GBPJPY": {
