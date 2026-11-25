@@ -17,7 +17,7 @@ PAIRS = [
 ]
 
 # 1. TURTLE SOUP (TS & TS+)
-TS_STATUS = "ON"     
+TS_STATUS = "OFF"     
 TS_TIMEFRAME = "1d"  
 
 # 2. 80-20 STRATEGY
