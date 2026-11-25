@@ -19,7 +19,8 @@
             "tf": "1d",
             "setup_time": "1970-01-01 00:00:00.000000498",
             "status": "TRIGGERED",
-            "sl_aktif": 1.426575
+            "sl_aktif": 1.426575,
+            "exit_warned": true
         }
     },
     "USDCHF": {
@@ -31,7 +32,8 @@
             "tf": "1d",
             "setup_time": "1970-01-01 00:00:00.000000498",
             "status": "TRIGGERED",
-            "sl_aktif": 0.834405
+            "sl_aktif": 0.834405,
+            "exit_warned": true
         }
     },
     "GBPJPY": {
@@ -76,7 +78,8 @@
             "tf": "1d",
             "setup_time": "1970-01-01 00:00:00.000000498",
             "status": "TRIGGERED",
-            "sl_aktif": 3546.6735
+            "sl_aktif": 3546.6735,
+            "exit_warned": true
         }
     }
 }
