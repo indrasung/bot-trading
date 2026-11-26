@@ -1,0 +1,22 @@
+name: Test RSI ADX
+
+on:
+  workflow_dispatch: # Hanya bisa dijalankan manual
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Kode
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Library
+        run: pip install requests pandas numpy biquote
+
+      - name: Jalankan Test
+        run: python test_rsi.py
