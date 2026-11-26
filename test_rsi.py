@@ -31,7 +31,6 @@ def hitung_adx_wilder(df, period=14):
     plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
     minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
     
-    # Wilder's Smoothing (EMA dengan alpha 1/period)
     atr = tr.ewm(alpha=1/period, adjust=False).mean()
     plus_di = 100 * (pd.Series(plus_dm).ewm(alpha=1/period, adjust=False).mean() / atr)
     minus_di = 100 * (pd.Series(minus_dm).ewm(alpha=1/period, adjust=False).mean() / atr)
@@ -46,25 +45,34 @@ def main():
     
     for sym in TEST_PAIRS:
         print(f"\n--- Mengambil data {sym} ---")
-        # Ambil 1000 data H1 agar cukup untuk merakit histori D1
         bars = bq.ohlc(sym, interval="1h", limit=1000)
         if not bars:
             print(f"Gagal ambil data {sym}")
             continue
             
         df = pd.DataFrame(bars)
-        df['time'] = pd.to_datetime(df['time'])
-        df.set_index('time', inplace=True)
+        
+        # --- PERBAIKAN DETEKSI WAKTU ---
+        # Cari kolom waktu, bisa 'time' atau 'timestamp'
+        time_col = None
+        if 'time' in df.columns: time_col = 'time'
+        elif 'timestamp' in df.columns: time_col = 'timestamp'
+        
+        if time_col:
+            df['date'] = pd.to_datetime(df[time_col], unit='ms' if df[time_col].dtype == 'int64' else None, errors='coerce')
+            df.set_index('date', inplace=True)
+        else:
+            # Jika tidak ada kolom waktu, coba jadikan index sebagai waktu
+            df.index = pd.to_datetime(df.index, errors='coerce')
+            
         df.rename(columns={'open':'Open', 'high':'High', 'low':'Low', 'close':'Close'}, inplace=True)
         
-        # 1. Buang candle H1 yang sedang berjalan (belum tutup)
+        # Buang candle H1 yang sedang berjalan
         df_h1_closed = df.iloc[:-1].copy()
         
-        # 2. Geser index waktu ke WIB, lalu geser -5 jam agar jam 05:00 WIB jadi awal hari
-        # (Karena index dari biquote biasanya UTC, kita tambah 7 jam ke WIB, lalu kurangi 5 jam)
+        # Geser index waktu ke WIB, lalu geser agar jam 05:00 WIB jadi awal hari
+        # (Kita asumsikan biquote UTC, jadi geser +2 jam. Jika hasil tes beda, nanti kita sesuaikan)
         df_h1_closed.index = df_h1_closed.index + pd.Timedelta(hours=2) 
-        # CATATAN: +2 jam ini asumsi biquote UTC, 05:00 WIB = 22:00 UTC kemarin. 
-        # Agar 05:00 WIB jadi 00:00, kita geser index.
         
         # Merakit H1 menjadi D1
         df_d1 = df_h1_closed.resample('1D').agg({
