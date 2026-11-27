@@ -16,15 +16,15 @@ PAIRS = [
     "AUDCAD", "EURCAD", "GBPCAD", "XAUUSD", "BTCUSD"
 ]
 
-# 1. TURTLE SOUP (TS & TS+)
-TS_STATUS = "OFF"     
+# 1. TURTLE SOUP (TS & TS+) - Default D1
+TS_STATUS = "ON"     
 TS_TIMEFRAME = "1d"  
 
-# 2. 80-20 STRATEGY
+# 2. 80-20 STRATEGY - Default D1
 S8020_STATUS = "ON"     
 S8020_TIMEFRAME = "1d"  
 
-# 3. MOMENTUM PINBALL
+# 3. MOMENTUM PINBALL (Rakit H1 ke D1, Cek RSI & Ukuran Candle)
 PINBALL_STATUS = "ON"     
 
 # 4. Parameter Global
@@ -56,9 +56,6 @@ def save_json(filename, data):
     with open(filename, 'w') as f:
         json.dump(data, f, indent=4)
 
-# =====================================================================
-# [BAGIAN 3] TELEGRAM (ANTI-PUTUS)
-# =====================================================================
 def kirim_telegram(pesan):
     token = os.environ.get("TELEGRAM_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
@@ -73,7 +70,7 @@ def kirim_telegram(pesan):
         except: time.sleep(5)
 
 # =====================================================================
-# [BAGIAN 4] DATA & PERHITUNGAN MATEMATIKA
+# [BAGIAN 3] DATA & PERHITUNGAN MATEMATIKA
 # =====================================================================
 def hitung_atr(df, period=14):
     hl = df['High'] - df['Low']
@@ -82,10 +79,9 @@ def hitung_atr(df, period=14):
     tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
     return tr.rolling(window=period).mean()
 
-def hitung_lbr_rsi(df):
-    # LBR/RSI: RSI(3) dari Net Change (Momentum 1)
-    roc = df['Close'].diff()
-    delta = roc.diff()
+def hitung_rsi_momentum(df):
+    momentum = (df['Close'] / df['Close'].shift(1)) * 100
+    delta = momentum.diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
     avg_gain = gain.ewm(alpha=1/3, adjust=False).mean()
@@ -94,45 +90,28 @@ def hitung_lbr_rsi(df):
     rsi = 100 - (100 / (1 + rs))
     return rsi.iloc[-1]
 
-def hitung_adx(df, period=14):
-    high, low, close = df['High'], df['Low'], df['Close']
-    plus_dm = high.diff()
-    minus_dm = low.diff()
-    plus_dm[plus_dm < 0] = 0
-    minus_dm[minus_dm > 0] = 0
-    
-    tr1 = pd.DataFrame(high - low)
-    tr2 = pd.DataFrame(abs(high - close.shift(1)))
-    tr3 = pd.DataFrame(abs(low - close.shift(1)))
-    frames = [tr1, tr2, tr3]
-    tr = pd.concat(frames, axis=1, join='inner').max(axis=1)
-    
-    atr = tr.ewm(alpha=1/period, adjust=False).mean()
-    plus_di = 100 * (plus_dm.ewm(alpha=1/period, adjust=False).mean() / atr)
-    minus_di = 100 * (abs(minus_dm.ewm(alpha=1/period, adjust=False).mean()) / atr)
-    dx = (abs(plus_di - minus_di) / abs(plus_di + minus_di)) * 100
-    adx = dx.ewm(alpha=1/period, adjust=False).mean()
-    return adx.iloc[-1]
-
-def get_data_biquote(bq, symbol, timeframe):
+def get_data_d1_synced(bq, symbol):
+    """Mengambil data H1, merakitnya menjadi D1 (GMT+2), dan membuang candle live."""
     try:
-        limit = 500 if timeframe == "1d" else 50
-        bars = bq.ohlc(symbol, interval=timeframe, limit=limit)
+        bars = bq.ohlc(symbol, interval="1h", limit=5000)
         if not bars: return None, None
+        
         df = pd.DataFrame(bars)
+        if 'isOpen' in df.columns: df = df[~df['isOpen']]
         
-        # PERBAIKAN BUG: Konversi index waktu secara aman
-        if 'time' in df.columns:
-            df['time'] = pd.to_datetime(df['time'], errors='coerce')
-            df.dropna(subset=['time'], inplace=True)
-            df.set_index('time', inplace=True)
-            
         df.rename(columns={'open':'Open', 'high':'High', 'low':'Low', 'close':'Close'}, inplace=True)
-        df_closed = df.iloc[:-1] # Buang candle berjalan
+        df['openTime'] = pd.to_datetime(df['openTime'])
+        df.set_index('openTime', inplace=True)
         
-        # Pastikan index adalah datetime
-        df_closed.index = pd.to_datetime(df_closed.index)
-        return df_closed, str(df_closed.index[-1])
+        # Geser ke GMT+2 (Server MT4)
+        df.index = df.index.tz_localize(None) + pd.Timedelta(hours=2)
+        
+        # Rakit D1
+        df_d1 = df.resample('1D').agg({
+            'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'
+        }).dropna()
+        
+        return df_d1, str(df_d1.index[-1])
     except Exception as e:
         print(f"Error data {symbol}: {e}")
         return None, None
@@ -140,12 +119,11 @@ def get_data_biquote(bq, symbol, timeframe):
 def get_live_tick(bq, symbol):
     try:
         tick = bq.tick(symbol)
-        bid, ask = float(tick['bid']), float(tick['ask'])
-        return bid, ask, (ask - bid)
+        return float(tick['bid']), float(tick['ask']), (float(tick['ask']) - float(tick['bid']))
     except: return None, None, None
 
 # =====================================================================
-# [BAGIAN 5] MODUL STRATEGI
+# [BAGIAN 4] MODUL STRATEGI
 # =====================================================================
 def cek_ts(symbol, df, state):
     if df is None or len(df) < 22: return None
@@ -167,18 +145,18 @@ def cek_ts(symbol, df, state):
         wick = (min(o,c) - l) / (h - l) if (h-l)>0 else 0
         if c > low20 and age >= 4:
             tipe = "KUAT" if wick >= 0.5 else "LEMAH"
-            setup = {"type": f"TS {tipe}", "dir": "BUY", "entry": low20 + (ENTRY_ATR*atr_val), "sl": l - (STOP_ATR*atr_val), "tf": TS_TIMEFRAME, "setup_time": tgl, "status": "WAITING", "trailing": True}
+            setup = {"type": f"TS {tipe}", "dir": "BUY", "entry": low20 + (ENTRY_ATR*atr_val), "sl": l - (STOP_ATR*atr_val), "tf": "1d", "setup_time": tgl, "status": "WAITING", "trailing": True}
         elif c <= low20 and age >= 3:
-            setup = {"type": "TS+", "dir": "BUY", "entry": low20, "sl": l - (STOP_ATR*atr_val), "tf": TS_TIMEFRAME, "setup_time": tgl, "status": "WAITING", "trailing": False}
+            setup = {"type": "TS+", "dir": "BUY", "entry": low20, "sl": l - (STOP_ATR*atr_val), "tf": "1d", "setup_time": tgl, "status": "WAITING", "trailing": False}
             
     if h > high20:
         age = len(lookback) - lookback['High'].values.argmax()
         wick = (h - max(o,c)) / (h - l) if (h-l)>0 else 0
         if c < high20 and age >= 4:
             tipe = "KUAT" if wick >= 0.5 else "LEMAH"
-            setup = {"type": f"TS {tipe}", "dir": "SELL", "entry": high20 - (ENTRY_ATR*atr_val), "sl": h + (STOP_ATR*atr_val), "tf": TS_TIMEFRAME, "setup_time": tgl, "status": "WAITING", "trailing": True}
+            setup = {"type": f"TS {tipe}", "dir": "SELL", "entry": high20 - (ENTRY_ATR*atr_val), "sl": h + (STOP_ATR*atr_val), "tf": "1d", "setup_time": tgl, "status": "WAITING", "trailing": True}
         elif c >= high20 and age >= 3:
-            setup = {"type": "TS+", "dir": "SELL", "entry": high20, "sl": h + (STOP_ATR*atr_val), "tf": TS_TIMEFRAME, "setup_time": tgl, "status": "WAITING", "trailing": False}
+            setup = {"type": "TS+", "dir": "SELL", "entry": high20, "sl": h + (STOP_ATR*atr_val), "tf": "1d", "setup_time": tgl, "status": "WAITING", "trailing": False}
             
     state[f"{symbol}_TS"] = tgl
     return setup
@@ -199,17 +177,18 @@ def cek_8020(symbol, df, state):
     
     top, bot = h - (0.2*rng), l + (0.2*rng)
     setup = None
+    atr_multiplier = rng / atr_val
     
     if o >= top and c <= bot: 
-        setup = {"type": "80-20 BUY", "dir": "BUY", "level_entry": l, "atr_val": atr_val, "tf": S8020_TIMEFRAME, "setup_time": tgl, "status": "WAITING"}
+        setup = {"type": "80-20 BUY", "dir": "BUY", "level_entry": l, "atr_val": atr_val, "range": rng, "atr_mult": atr_multiplier, "tf": "1d", "setup_time": tgl, "status": "WAITING"}
     elif o <= bot and c >= top: 
-        setup = {"type": "80-20 SELL", "dir": "SELL", "level_entry": h, "atr_val": atr_val, "tf": S8020_TIMEFRAME, "setup_time": tgl, "status": "WAITING"}
+        setup = {"type": "80-20 SELL", "dir": "SELL", "level_entry": h, "atr_val": atr_val, "range": rng, "atr_mult": atr_multiplier, "tf": "1d", "setup_time": tgl, "status": "WAITING"}
         
     state[f"{symbol}_8020"] = tgl
     return setup
 
 # =====================================================================
-# [BAGIAN 6] PROGRAM UTAMA
+# [BAGIAN 5] PROGRAM UTAMA
 # =====================================================================
 def jalankan():
     now_utc = datetime.now(timezone.utc)
@@ -217,9 +196,9 @@ def jalankan():
     waktu_proses = now_wib.strftime("%d %b %y, %H:%M WIB")
     today_str = now_wib.strftime("%Y-%m-%d")
     
-    # SATPAM WAKTU: Tunggu sampai jam 05:05 WIB agar candle D1 benar-benar matang
+    # Satpam Waktu: Tunggu jam 05:05 WIB
     if now_wib.hour == 5 and now_wib.minute < 5:
-        print(f"[INFO] {waktu_proses} - Menunggu candle D1 matang (lewat 05:05)...")
+        print(f"[INFO] {waktu_proses} - Menunggu D1 matang (05:05)...")
         return
         
     print(f"[MULAI] {waktu_proses}")
@@ -230,68 +209,71 @@ def jalankan():
 
     # --- FASE 1: MOMENTUM PINBALL ---
     if PINBALL_STATUS == "ON":
-        # 1. Jam 05:05 - Cari Watchlist (RSI + ADX + Filter ATR)
+        # Jam 05:05 - Cek Watchlist
         if now_wib.hour == 5 and state.get("pinball_watch_date") != today_str:
             watchlist = []
             for sym in PAIRS:
-                df_d1, _ = get_data_biquote(bq, sym, "1d")
+                df_d1, _ = get_data_d1_synced(bq, sym)
                 if df_d1 is not None and len(df_d1) > ATR_PERIOD:
-                    rsi_val = hitung_lbr_rsi(df_d1)
-                    adx_val = hitung_adx(df_d1)
-                    df_d1['ATR'] = hitung_atr(df_d1, ATR_PERIOD)
-                    atr_val = df_d1['ATR'].iloc[-1]
-                    rng = df_d1['High'].iloc[-1] - df_d1['Low'].iloc[-1]
+                    df_closed = df_d1.iloc[:-1]
+                    df_closed['ATR'] = hitung_atr(df_closed, ATR_PERIOD)
                     
-                    if pd.isna(rsi_val) or pd.isna(adx_val) or pd.isna(atr_val): continue
+                    rsi_val = hitung_rsi_momentum(df_closed)
+                    atr_val = float(df_closed['ATR'].iloc[-1])
+                    rng = float(df_closed['High'].iloc[-1] - df_closed['Low'].iloc[-1])
+                    atr_mult = rng / atr_val if atr_val > 0 else 0
                     
-                    # Filter: RSI Ekstrem, ADX Ideal (16-30), Candle Besar (>= 0.8 ATR)
-                    if (rsi_val < 30 or rsi_val > 70) and (16 < adx_val < 30) and (rng >= 0.8 * atr_val):
+                    if not pd.isna(rsi_val) and (rsi_val < 30 or rsi_val > 70):
                         status_rsi = "Oversold" if rsi_val < 30 else "Overbought"
-                        watchlist.append(f"• {sym} (RSI: {rsi_val:.1f} {status_rsi}, ADX: {adx_val:.1f})")
+                        watchlist.append(f"• {sym} (RSI: {rsi_val:.1f} {status_rsi}, Candle: {atr_mult:.2f} ATR)")
             
             if watchlist:
                 msg = (f"🔍 <b>PINBALL WATCHLIST</b> - {waktu_proses}\n"
                        f"Kriteria Terpenuhi:\n" + "\n".join(watchlist) + 
-                       f"\n\n👉 <i>Bot mengawasi Jam Pertama. Sinyal Entry dikirim jam 06:05.</i>")
+                       f"\n\n👉 <i>Cek ADX di MT4 (16-30). Sinyal Entry dikirim jam 06:05.</i>")
                 sinyal_kirim.append(msg)
             
             state["pinball_watch_date"] = today_str
             state["pinball_watch_pairs"] = [w.split(' ')[1] for w in watchlist]
             
-        # 2. Jam 06:05 - Entry (Berdasarkan Watchlist)
+        # Jam 06:05 - Cek Entry
         if now_wib.hour == 6 and state.get("pinball_entry_date") != today_str:
             watchlist_pairs = state.get("pinball_watch_pairs", [])
             for sym in watchlist_pairs:
-                df_d1, last_d1_date = get_data_biquote(bq, sym, "1d")
-                df_h1, _ = get_data_biquote(bq, sym, "1h")
+                df_d1, _ = get_data_d1_synced(bq, sym)
+                df_h1, _ = get_data_d1_synced(bq, sym) # Ambil H1 live (kita pakai helper resample D1 yang terakhir)
                 
-                if df_h1 is not None and not df_h1.empty and last_d1_date:
-                    # Cari candle H1 pertama setelah candle D1 terakhir tutup
-                    new_day_h1 = df_h1[df_h1.index > pd.to_datetime(last_d1_date)]
-                    if not new_day_h1.empty:
-                        first_hour = new_day_h1.iloc[0]
-                        high_h1 = float(first_hour['High'])
-                        low_h1 = float(first_hour['Low'])
+                # Kita cari candle H1 pertama setelah candle D1 terakhir tutup.
+                # Karena get_data_d1_synced membuang candle live, kita butuh data mentah H1.
+                try:
+                    bars = bq.ohlc(sym, interval="1h", limit=100)
+                    df_h1 = pd.DataFrame(bars)
+                    df_h1['openTime'] = pd.to_datetime(df_h1['openTime'])
+                    df_h1.set_index('openTime', inplace=True)
+                    df_h1.rename(columns={'open':'Open', 'high':'High', 'low':'Low', 'close':'Close'}, inplace=True)
+                    
+                    # Filter: Ambil H1 yang jam-nya >= 05:00 WIB (atau 22:00 UTC kemarin)
+                    # Kita ambil 2 candle H1 terakhir sebelum jam 06:05 WIB
+                    last_h1 = df_h1.iloc[-2] # Candle H1 yang baru saja tutup (05:00-06:00)
+                    
+                    if last_h1.name.hour == 21 or last_h1.name.hour == 22: # Asumsi UTC
+                        high_h1 = float(last_h1['High'])
+                        low_h1 = float(last_h1['Low'])
                         
-                        # Tentukan arah dari RSI D1 kemarin
-                        rsi_val = hitung_lbr_rsi(df_d1) if df_d1 is not None else 50
+                        rsi_val = hitung_rsi_momentum(df_d1.iloc[:-1]) if df_d1 is not None else 50
                         dir_setup = "BUY" if rsi_val < 30 else "SELL" if rsi_val > 70 else None
                         
                         if dir_setup:
-                            s_pinball = {
-                                "type": f"PINBALL {dir_setup}", "dir": dir_setup, 
-                                "entry": high_h1 if dir_setup == "BUY" else low_h1, 
-                                "sl": low_h1 if dir_setup == "BUY" else high_h1, 
-                                "tf": "1d", "setup_time": today_str, "status": "WAITING"
-                            }
+                            s_pinball = {"type": f"PINBALL {dir_setup}", "dir": dir_setup, "entry": high_h1 if dir_setup == "BUY" else low_h1, "sl": low_h1 if dir_setup == "BUY" else high_h1, "tf": "1d", "setup_time": today_str, "status": "WAITING"}
                             if sym not in active: active[sym] = {}
                             active[sym]["PINBALL"] = s_pinball
-                            
                             msg = (f"🚨 <b>{sym}</b> - {s_pinball['type']} - {waktu_proses}\n"
-                                   f"Kotak Jam 1: <code>{low_h1:.5f}</code> (Low) - <code>{high_h1:.5f}</code> (High)\n"
+                                   f"Kotak Jam 1: <code>{low_h1:.5f}</code> - <code>{high_h1:.5f}</code>\n"
                                    f"Entry: <code>{s_pinball['entry']:.5f}</code> ({dir_setup} Stop)\n"
                                    f"SL: <code>{s_pinball['sl']:.5f}</code>")
                             sinyal_kirim.append(msg)
+                except Exception as e:
+                    print(f"Error Pinball Entry {sym}: {e}")
             
             state["pinball_entry_date"] = today_str
             state["pinball_watch_pairs"] = []
@@ -301,9 +283,12 @@ def jalankan():
         bid, ask, spread = get_live_tick(bq, sym)
         if not bid: continue
         
+        df_d1, _ = get_data_d1_synced(bq, sym)
+        if df_d1 is None: continue
+        df_closed = df_d1.iloc[:-1]
+
         if TS_STATUS == "ON":
-            df_ts, _ = get_data_biquote(bq, sym, TS_TIMEFRAME)
-            s_ts = cek_ts(sym, df_ts, state)
+            s_ts = cek_ts(sym, df_closed, state)
             if s_ts:
                 if sym not in active: active[sym] = {}
                 active[sym]["TS"] = s_ts
@@ -316,8 +301,7 @@ def jalankan():
                 sinyal_kirim.append(msg)
 
         if S8020_STATUS == "ON":
-            df_8020, _ = get_data_biquote(bq, sym, S8020_TIMEFRAME)
-            s_8020 = cek_8020(sym, df_8020, state)
+            s_8020 = cek_8020(sym, df_closed, state)
             if s_8020:
                 if sym not in active: active[sym] = {}
                 active[sym]["8020"] = s_8020
@@ -327,7 +311,8 @@ def jalankan():
                 msg = (f"🔍 <b>{sym}</b> - {s_8020['type']} - {waktu_proses}\n"
                        f"Entry: <code>{s_8020['level_entry']:.5f}</code> ({s_8020['dir']} Stop)\n"
                        f"Warn: <code>{target_warn:.5f}</code>\n"
-                       f"Exec: <code>{target_exec:.5f}</code> (Jarak: {jarak_exec:.5f})")
+                       f"Exec: <code>{target_exec:.5f}</code> (Jarak: {jarak_exec:.5f})\n"
+                       f"Candle Kemarin: {s_8020['range']*10000:.0f} pips ({s_8020['atr_mult']:.2f} ATR) 🔥")
                 sinyal_kirim.append(msg)
 
     # --- FASE 3: PANTAU TRIGGER, EXPIRY & TRAILING ---
@@ -338,8 +323,7 @@ def jalankan():
         for key in list(active[sym].keys()):
             s = active[sym][key]
             
-            # EXPIRY
-            df_check, current_candle_time = get_data_biquote(bq, sym, s['tf'])
+            df_check, current_candle_time = get_data_d1_synced(bq, sym)
             if df_check is not None and s.get('setup_time'):
                 if current_candle_time != s['setup_time'] and s['status'] in ['WAITING', 'WARNING', 'EXECUTION']:
                     msg = f"⏰ <b>{sym}</b> - {s['type']} DIBATALKAN (Kadaluwarsa)\nHarga tidak menyentuh Entry sesuai batas waktu."
@@ -347,7 +331,6 @@ def jalankan():
                     del active[sym][key]
                     continue
 
-            # LOGIKA 80-20
             if key == "8020":
                 dist = 0
                 if s['dir'] == "BUY" and bid < s['level_entry']: dist = s['level_entry'] - bid
@@ -373,7 +356,6 @@ def jalankan():
                         sinyal_kirim.append(msg)
                         
                 elif s['status'] == 'TRIGGERED':
-                    # Trailing Stop (D1: Low 3 candle)
                     if df_check is not None and len(df_check) >= 3:
                         low3 = float(df_check['Low'].tail(3).min()) if s['dir'] == "BUY" else float(df_check['High'].tail(3).max())
                         if s['dir'] == "BUY" and low3 > s.get('sl_aktif', 0):
@@ -386,7 +368,6 @@ def jalankan():
                         msg = f"⏰ <b>{sym}</b> - EXIT {s['type']} - {waktu_proses}\n👉 Segera tutup posisi di MT4."
                         sinyal_kirim.append(msg)
             
-            # LOGIKA TS / TS+
             elif key == "TS":
                 if s['status'] == 'WAITING':
                     if (s['dir'] == "BUY" and bid >= s['entry']) or (s['dir'] == "SELL" and bid <= s['entry']):
@@ -395,7 +376,6 @@ def jalankan():
                         sinyal_kirim.append(msg)
                 
                 elif s['status'] == 'TRIGGERED':
-                    # REVISI: Trailing hanya jalan jika profit mencapai 1R penuh
                     if s.get('trailing'):
                         if s['dir'] == "BUY" and bid > s['entry'] + (abs(s['entry']-s['sl'])*1.0):
                             new_sl = s['entry']
@@ -404,7 +384,6 @@ def jalankan():
                                 msg = f"🔄 <b>{sym}</b> - UPDATE SL - {waktu_proses}\nPindahkan SL ke: <code>{new_sl:.5f}</code> (BE)."
                                 sinyal_kirim.append(msg)
 
-            # LOGIKA PINBALL
             elif key == "PINBALL":
                 if s['status'] == 'WAITING':
                     if (s['dir'] == "BUY" and bid >= s['entry']) or (s['dir'] == "SELL" and bid <= s['entry']):
@@ -423,4 +402,5 @@ def jalankan():
     else:
         print("[INFO] Tidak ada sinyal/setup baru.")
 
-if __name__ == "__main__": jalankan()
+if __name__ == "__main__":
+    jalankan()
