@@ -62,7 +62,7 @@ def main():
         }).dropna()
         
         # Ambil data sampai kemarin
-        df_d1_kemarin = df_d1.iloc[:-1]
+        df_d1_kemarin = df_d1.iloc[:-2]
         candle_kemarin = df_d1_kemarin.iloc[-1]
         tanggal_kemarin = df_d1_kemarin.index[-1].strftime("%d %b %Y")
         
