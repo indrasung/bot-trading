@@ -16,7 +16,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install Library
-        run: pip install requests pandas numpy biquote pandas_ta
+        run: pip install requests pandas numpy biquote
 
       - name: Jalankan Test
         run: python test_rsi.py
